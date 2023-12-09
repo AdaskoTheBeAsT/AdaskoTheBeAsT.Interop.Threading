@@ -1,0 +1,65 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.8.34309.116
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = ".props", ".props", "{ECE44805-D2CB-4B27-B3BD-07FE10ACFE94}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+		.gitignore = .gitignore
+		AdaskoTheBeAsT.Interop.Threading.sln.DotSettings = AdaskoTheBeAsT.Interop.Threading.sln.DotSettings
+		AdaskoTheBeAsT.ruleset = AdaskoTheBeAsT.ruleset
+		DeterministicBuild.targets = DeterministicBuild.targets
+		Directory.Build.props = Directory.Build.props
+		Directory.Build.targets = Directory.Build.targets
+		global.json = global.json
+		LICENSE = LICENSE
+		README.md = README.md
+		SecurityCodeScan.config.yml = SecurityCodeScan.config.yml
+		Settings.StyleCop = Settings.StyleCop
+		stylecop.json = stylecop.json
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{1B2B7889-D6F0-4221-8990-5987071FAD17}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "test", "test", "{58228CEF-3062-47BA-8856-4CF48E86D4BE}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = ".props", ".props", "{81CEDDDB-A3D8-4283-9912-10009F85B07E}"
+	ProjectSection(SolutionItems) = preProject
+		test\Directory.Build.props = test\Directory.Build.props
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "unit", "unit", "{484BEE9C-D240-4EAC-BDC4-774B315D7881}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AdaskoTheBeAsT.Interop.Threading", "src\AdaskoTheBeAsT.Interop.Threading\AdaskoTheBeAsT.Interop.Threading.csproj", "{838090EA-DB33-4415-A70C-7552BC051BB1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AdaskoTheBeAsT.Interop.Threading.Test", "test\unit\AdaskoTheBeAsT.Interop.Threading.Test\AdaskoTheBeAsT.Interop.Threading.Test.csproj", "{A2A814D5-C8FF-4E71-9325-D4E6FEB221EF}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{838090EA-DB33-4415-A70C-7552BC051BB1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{838090EA-DB33-4415-A70C-7552BC051BB1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{838090EA-DB33-4415-A70C-7552BC051BB1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{838090EA-DB33-4415-A70C-7552BC051BB1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A2A814D5-C8FF-4E71-9325-D4E6FEB221EF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A2A814D5-C8FF-4E71-9325-D4E6FEB221EF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A2A814D5-C8FF-4E71-9325-D4E6FEB221EF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A2A814D5-C8FF-4E71-9325-D4E6FEB221EF}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{81CEDDDB-A3D8-4283-9912-10009F85B07E} = {58228CEF-3062-47BA-8856-4CF48E86D4BE}
+		{484BEE9C-D240-4EAC-BDC4-774B315D7881} = {58228CEF-3062-47BA-8856-4CF48E86D4BE}
+		{838090EA-DB33-4415-A70C-7552BC051BB1} = {1B2B7889-D6F0-4221-8990-5987071FAD17}
+		{A2A814D5-C8FF-4E71-9325-D4E6FEB221EF} = {484BEE9C-D240-4EAC-BDC4-774B315D7881}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {20DD6EE1-373C-40D9-A47B-F99A804A4E1D}
+	EndGlobalSection
+EndGlobal
