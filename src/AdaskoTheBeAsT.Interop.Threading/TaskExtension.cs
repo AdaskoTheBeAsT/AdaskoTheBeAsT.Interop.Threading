@@ -24,7 +24,7 @@ public static class TaskExtension
 #endif
 
 #if NET8_0_OR_GREATER
-            await timeoutCancellationTokenSource.CancelAsync();
+            await timeoutCancellationTokenSource.CancelAsync().ConfigureAwait(false);
 #endif
 
             // disable warning as this is targeted only for web api projects

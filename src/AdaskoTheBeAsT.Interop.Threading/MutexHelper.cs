@@ -29,9 +29,10 @@ public static class MutexHelper
 
         var mutexName = isGlobal ? $"Global\\{name}" : name;
         var allowEveryoneRule = new MutexAccessRule(
-                                    new SecurityIdentifier(WellKnownSidType.WorldSid, domainSid: null),
-                                    MutexRights.FullControl,
-                                    AccessControlType.Allow);
+            new SecurityIdentifier(WellKnownSidType.WorldSid, domainSid: null),
+            MutexRights.FullControl,
+            AccessControlType.Allow);
+
         var securitySettings = new MutexSecurity();
         securitySettings.AddAccessRule(allowEveryoneRule);
 
