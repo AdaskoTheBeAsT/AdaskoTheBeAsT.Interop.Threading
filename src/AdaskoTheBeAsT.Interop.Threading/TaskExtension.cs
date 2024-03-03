@@ -13,7 +13,10 @@ public static class TaskExtension
     {
         using (var timeoutCancellationTokenSource = new CancellationTokenSource())
         {
+            // disable warning as this is targeted only for web api projects
+#pragma warning disable VSTHRD003
             var completedTask = await Task.WhenAny(task, Task.Delay(timeout, timeoutCancellationTokenSource.Token)).ConfigureAwait(false);
+#pragma warning restore VSTHRD003
             if (completedTask != task)
             {
                 throw new TimeoutException("The operation has timed out.");
