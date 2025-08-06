@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Threading;
@@ -20,7 +21,9 @@ public static class MutexHelper
         return RunInMutex(name, timeout, isGlobal: true, func);
     }
 
+#pragma warning disable MA0051
     public static T RunInMutex<T>(string name, TimeSpan timeout, bool isGlobal, Func<T> func)
+#pragma warning restore MA0051
     {
         if (func == null)
         {
@@ -36,9 +39,25 @@ public static class MutexHelper
         var securitySettings = new MutexSecurity();
         securitySettings.AddAccessRule(allowEveryoneRule);
 
-        using (var mutex = new Mutex(initiallyOwned: false, mutexName, out bool _))
+        using (var mutex = new Mutex(
+                   initiallyOwned: false,
+                   mutexName,
+                   out bool createdNew))
         {
-            mutex.SetAccessControl(securitySettings);
+            if (createdNew)
+            {
+                try
+                {
+                    mutex.SetAccessControl(securitySettings);
+                }
+#pragma warning disable CC0004
+                catch (PlatformNotSupportedException)
+                {
+                    // you're on a runtime that doesn't support it—just continue
+                }
+#pragma warning restore CC0004
+            }
+
             var hasHandle = false;
             try
             {
@@ -51,8 +70,10 @@ public static class MutexHelper
                             $"Timeout waiting for exclusive access {mutexName} after {timeout}");
                     }
                 }
-                catch (AbandonedMutexException)
+                catch (AbandonedMutexException ex)
                 {
+                    Trace.TraceWarning($"Mutex '{mutexName}' was abandoned: {ex}");
+
                     // Log the fact the mutex was abandoned in another process, it will still get acquired
                     hasHandle = true;
                 }
