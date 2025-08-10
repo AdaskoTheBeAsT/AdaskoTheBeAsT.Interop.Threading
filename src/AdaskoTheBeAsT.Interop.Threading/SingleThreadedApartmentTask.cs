@@ -1,5 +1,4 @@
 using System;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -10,6 +9,18 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 /// </summary>
 public static class SingleThreadedApartmentTask
 {
+    public static Task<T> RunAsync<T>(
+        Func<StaYield, T> func,
+        CancellationToken cancellationToken)
+    {
+        if (func == null)
+        {
+            throw new ArgumentNullException(nameof(func));
+        }
+
+        return RunAsync(() => func(new StaYield()), cancellationToken);
+    }
+
     // ReSharper disable once InconsistentNaming
     // ReSharper disable once MemberCanBePrivate.Global
     public static Task<T> RunAsync<T>(
@@ -19,6 +30,11 @@ public static class SingleThreadedApartmentTask
         if (func == null)
         {
             throw new ArgumentNullException(nameof(func));
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled<T>(cancellationToken);
         }
 
         var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -50,6 +66,7 @@ public static class SingleThreadedApartmentTask
         {
             // won't block process shutdown
             IsBackground = true,
+            Name = "STA Task Thread",
         };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
