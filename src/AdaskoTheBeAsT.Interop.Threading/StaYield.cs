@@ -12,10 +12,11 @@ public sealed class StaYield(int intervalMs = 15)
     /// </summary>
     public void Occasionally()
     {
-        if (Environment.TickCount - _last >= intervalMs)
+        var now = Environment.TickCount;
+        if (unchecked(now - _last) >= intervalMs)
         {
             NativeMethods.PumpPendingMessages();
-            _last = Environment.TickCount;
+            _last = now;
         }
     }
 
@@ -44,11 +45,12 @@ public sealed class StaYield(int intervalMs = 15)
     /// <param name="ms"></param>
     public void Sleep(int ms)
     {
-        var end = Environment.TickCount + ms;
-        while (Environment.TickCount < end)
+        var start = Environment.TickCount;
+        while (unchecked(Environment.TickCount - start) < ms)
         {
             Occasionally();
-            Thread.Sleep(Math.Min(10, end - Environment.TickCount));
+            var remaining = ms - unchecked(Environment.TickCount - start);
+            Thread.Sleep(Math.Min(10, Math.Max(1, remaining)));
         }
     }
 }
