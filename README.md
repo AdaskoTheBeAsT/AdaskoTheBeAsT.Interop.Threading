@@ -10,7 +10,7 @@ A high-performance, production-ready C# library for advanced threading scenarios
 - **Cross-Process Synchronization**: Global mutexes with proper security settings and abandoned mutex recovery
 - **STA Thread Support**: Execute code in STA context with full COM interop support and message pump handling
 - **Production-Ready**: Handles edge cases like abandoned mutexes, TickCount wraparound, and cancellation token propagation
-- **Multi-Framework Support**: Targets .NET Standard 2.0, .NET 8.0, and .NET 9.0 with optimized P/Invoke for each
+- **Multi-Framework Support**: Targets .NET Standard 2.0, .NET 8.0, .NET 9.0, and .NET 10.0 with optimized P/Invoke for each
 - **Zero External Dependencies**: Only uses System.Threading.AccessControl for enhanced security
 
 ## 📦 Installation
@@ -264,7 +264,7 @@ public async Task RunPeriodicTaskAsync(CancellationToken ct) {
 
 ## 🏗️ Technical Details
 
-- **Frameworks**: .NET Standard 2.0, .NET 8.0-windows, .NET 9.0-windows
+- **Frameworks**: .NET Standard 2.0, .NET 8.0-windows, .NET 9.0-windows, .NET 10.0-windows
 - **Platform**: Windows only (uses Win32 APIs for message pumps and COM)
 - **P/Invoke**: Uses modern `LibraryImport` source generators on .NET 8+ for better performance
 - **Thread Safety**: All APIs are thread-safe
