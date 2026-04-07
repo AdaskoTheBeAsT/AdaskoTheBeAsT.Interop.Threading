@@ -103,11 +103,11 @@ var result = await SingleThreadedApartmentTask.RunWithTimeoutAsync(
 **With Message Pump (StaYield):**
 ```csharp
 var result = await SingleThreadedApartmentTask.RunAsync(
-    (StaYield yield) => {
+    (StaYield staYield) => {
         for (int i = 0; i < 1000; i++) {
             DoWork(i);
             // Pump messages periodically to keep UI responsive
-            yield.Occasionally();
+            staYield.Occasionally();
         }
         return result;
     },
@@ -134,14 +134,14 @@ await Task.WhenAll(task1, task2);
 
 **With StaYield:**
 ```csharp
-await SingleThreadedApartmentTaskScheduler.RunAsync((StaYield yield) => {
+await SingleThreadedApartmentTaskScheduler.RunAsync((StaYield staYield) => {
     while (!condition) {
         // Wait for condition while pumping messages
-        yield.SpinUntil(() => CheckCondition(), checkEveryMs: 10);
+        staYield.SpinUntil(() => CheckCondition(), checkEveryMs: 10);
     }
     
     // Or sleep without blocking the message pump
-    yield.Sleep(1000);
+    staYield.Sleep(1000);
 });
 ```
 
@@ -181,21 +181,21 @@ try {
 When running long operations in STA threads, use `StaYield` to keep the message pump responsive.
 
 ```csharp
-var result = await SingleThreadedApartmentTask.RunAsync((StaYield yield) => {
+var result = await SingleThreadedApartmentTask.RunAsync((StaYield staYield) => {
     var items = GetLargeItemList();
     
     foreach (var item in items) {
         ProcessItem(item);
         
         // Pump messages every 15ms (default) during long loops
-        yield.Occasionally();
+        staYield.Occasionally();
     }
     
     // Wait for a condition without blocking messages
-    yield.SpinUntil(() => IsReady(), checkEveryMs: 10);
+    staYield.SpinUntil(() => IsReady(), checkEveryMs: 10);
     
     // Sleep while keeping message pump active
-    yield.Sleep(1000);
+    staYield.Sleep(1000);
     
     return GetResults();
 }, cancellationToken);
@@ -284,12 +284,12 @@ If the COM server hangs when multiple callers invoke it in parallel, put a queue
 
 The pattern is:
 
-1. create the COM object once in `StartAsync` while the manifest activation context is active;
+1. create the COM object once in `StartAsync` by calling `Executor.Create(...)` on the scheduler thread and keep the returned `ComObjectHandle<T>`;
 2. accept incoming requests through a queue;
 3. process each request through `SingleThreadedApartmentTaskScheduler.RunAsync(...)` so every call stays on the same STA thread and runs one-by-one.
+4. release the handle in `StopAsync` by calling `Executor.Free(...)` on that same scheduler thread.
 
 ```csharp
-using System.Runtime.InteropServices;
 using System.Threading.Channels;
 using AdaskoTheBeAsT.Interop.COM;
 using AdaskoTheBeAsT.Interop.Threading;
@@ -307,6 +307,7 @@ public sealed class ComCalculationHostedService : BackgroundService
     private readonly Channel<CalculationRequest> _requests = Channel.CreateUnbounded<CalculationRequest>();
     private readonly string _comDllPath;
     private readonly string _manifestPath;
+    private ComObjectHandle<LegacyCalculator.CalculatorClass>? _calculatorHandle;
     private LegacyCalculator.CalculatorClass? _calculator;
 
     public ComCalculationHostedService()
@@ -321,17 +322,22 @@ public sealed class ComCalculationHostedService : BackgroundService
         await SingleThreadedApartmentTaskScheduler.RunAsync(
             () =>
             {
-                var execution = Executor.Execute(_comDllPath, _manifestPath, () =>
-                {
-                    _calculator = new LegacyCalculator.CalculatorClass();
-                });
+                var creation = Executor.Create(
+                    _comDllPath,
+                    _manifestPath,
+                    () => new LegacyCalculator.CalculatorClass());
 
-                if (!execution.Success)
+                if (!creation.Success)
                 {
                     throw new InvalidOperationException(
                         "Failed to initialize the COM calculator.",
-                        execution.Exception);
+                        creation.Exception);
                 }
+
+                _calculatorHandle = creation.Value
+                    ?? throw new InvalidOperationException("The COM calculator handle was not created.");
+                _calculator = _calculatorHandle.ComObject
+                    ?? throw new InvalidOperationException("The COM calculator instance was not created.");
 
                 return 0;
             },
@@ -390,21 +396,29 @@ public sealed class ComCalculationHostedService : BackgroundService
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         _requests.Writer.TryComplete();
+        await base.StopAsync(cancellationToken);
 
         await SingleThreadedApartmentTaskScheduler.RunAsync(
             () =>
             {
-                if (_calculator is not null)
+                if (_calculatorHandle is not null)
                 {
-                    Marshal.FinalReleaseComObject(_calculator);
+                    var release = Executor.Free(_calculatorHandle);
+
                     _calculator = null;
+                    _calculatorHandle = null;
+
+                    if (!release.Success)
+                    {
+                        throw new InvalidOperationException(
+                            "Failed to release the COM calculator.",
+                            release.Exception);
+                    }
                 }
 
                 return 0;
             },
             cancellationToken);
-
-        await base.StopAsync(cancellationToken);
     }
 }
 ```
@@ -529,12 +543,13 @@ Then keep using the `ComCalculationHostedService` / `SingleThreadedApartmentTask
 
 For a reusable COM instance:
 
-1. create it once in `StartAsync` on the scheduler thread;
-2. store it in a field;
-3. route every operation back through `SingleThreadedApartmentTaskScheduler.RunAsync(...)`;
-4. release it in `StopAsync`.
+1. create it once in `StartAsync` on the scheduler thread with `Executor.Create(...)`;
+2. keep the returned `ComObjectHandle<T>` alive for the whole hosted-service lifetime;
+3. store the COM instance in a field;
+4. route every operation back through `SingleThreadedApartmentTaskScheduler.RunAsync(...)`;
+5. release the handle in `StopAsync` with `Executor.Free(...)` on the same scheduler thread.
 
-The call path then looks like this:
+The call path for each request then looks like this:
 
 ```csharp
 public Task<decimal> AddAsync(decimal left, decimal right, CancellationToken cancellationToken)
@@ -553,10 +568,12 @@ public Task<decimal> AddAsync(decimal left, decimal right, CancellationToken can
 
 #### If several different COM objects should each be instantiated only once
 
-If those COM objects can all live on the same STA thread, create them together in one hosted service and reuse them through `SingleThreadedApartmentTaskScheduler`.
+If those COM objects can all live on the same STA thread, create them together in one hosted service with `Executor.Create(...)`, keep one `ComObjectHandle<T>` per object, and reuse the instances through `SingleThreadedApartmentTaskScheduler`.
 
 ```csharp
+private ComObjectHandle<LegacyCalculator.CalculatorClass>? _calculatorHandle;
 private LegacyCalculator.CalculatorClass? _calculator;
+private ComObjectHandle<LegacyReporting.ReportGeneratorClass>? _reportGeneratorHandle;
 private LegacyReporting.ReportGeneratorClass? _reportGenerator;
 
 public override async Task StartAsync(CancellationToken cancellationToken)
@@ -564,29 +581,39 @@ public override async Task StartAsync(CancellationToken cancellationToken)
     await SingleThreadedApartmentTaskScheduler.RunAsync(
         () =>
         {
-            var calculatorExecution = Executor.Execute(_calculatorDllPath, _calculatorManifestPath, () =>
-            {
-                _calculator = new LegacyCalculator.CalculatorClass();
-            });
+            var calculatorCreation = Executor.Create(
+                _calculatorDllPath,
+                _calculatorManifestPath,
+                () => new LegacyCalculator.CalculatorClass());
 
-            if (!calculatorExecution.Success)
+            if (!calculatorCreation.Success)
             {
                 throw new InvalidOperationException(
                     "Failed to initialize the calculator COM component.",
-                    calculatorExecution.Exception);
+                    calculatorCreation.Exception);
             }
 
-            var reportExecution = Executor.Execute(_reportDllPath, _reportManifestPath, () =>
-            {
-                _reportGenerator = new LegacyReporting.ReportGeneratorClass();
-            });
+            _calculatorHandle = calculatorCreation.Value
+                ?? throw new InvalidOperationException("The calculator COM handle was not created.");
+            _calculator = _calculatorHandle.ComObject
+                ?? throw new InvalidOperationException("The calculator COM instance was not created.");
 
-            if (!reportExecution.Success)
+            var reportCreation = Executor.Create(
+                _reportDllPath,
+                _reportManifestPath,
+                () => new LegacyReporting.ReportGeneratorClass());
+
+            if (!reportCreation.Success)
             {
                 throw new InvalidOperationException(
                     "Failed to initialize the reporting COM component.",
-                    reportExecution.Exception);
+                    reportCreation.Exception);
             }
+
+            _reportGeneratorHandle = reportCreation.Value
+                ?? throw new InvalidOperationException("The reporting COM handle was not created.");
+            _reportGenerator = _reportGeneratorHandle.ComObject
+                ?? throw new InvalidOperationException("The reporting COM instance was not created.");
 
             return 0;
         },
@@ -622,7 +649,7 @@ public Task<string> BuildReportAsync(int reportId, CancellationToken cancellatio
         cancellationToken);
 ```
 
-Release every COM object in `StopAsync` on the same scheduler thread, just like in the single-component hosted service example above.
+Release every handle in `StopAsync` on the same scheduler thread by calling `Executor.Free(...)`, just like in the single-component hosted service example above.
 
 This gives you one app-wide STA lane where multiple COM components are instantiated once and reused safely.
 
@@ -637,12 +664,12 @@ Use this mixed approach in one application:
 ### Periodic Task with Cancellation
 ```csharp
 public async Task RunPeriodicTaskAsync(CancellationToken ct) {
-    await SingleThreadedApartmentTaskScheduler.RunAsync((StaYield yield) => {
+    await SingleThreadedApartmentTaskScheduler.RunAsync((StaYield staYield) => {
         while (!ct.IsCancellationRequested) {
             PerformWork();
-            
+
             // Sleep 10s while keeping message pump active
-            yield.Sleep(10000);
+            staYield.Sleep(10000);
         }
     }, ct);
 }

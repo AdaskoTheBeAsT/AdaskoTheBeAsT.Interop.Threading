@@ -6,6 +6,10 @@ using System.Threading.Tasks;
 
 namespace AdaskoTheBeAsT.Interop.Threading;
 
+/// <summary>
+/// Queues delegates onto one reusable background STA thread with an OLE message loop.
+/// This scheduler is process-wide and serializes all queued work items onto the same STA thread.
+/// </summary>
 public static class SingleThreadedApartmentTaskScheduler
 {
     private static readonly ConcurrentQueue<IStaWorkItem> _queue = new();
@@ -44,6 +48,14 @@ public static class SingleThreadedApartmentTaskScheduler
         AppDomain.CurrentDomain.ProcessExit += (_, _) => Shutdown();
     }
 
+    /// <summary>
+    /// Queues a delegate onto the shared STA scheduler and provides a <see cref="StaYield"/> helper for cooperative message pumping.
+    /// </summary>
+    /// <typeparam name="T">The type returned by the delegate.</typeparam>
+    /// <param name="work">The delegate to execute on the shared STA thread.</param>
+    /// <param name="cancellationToken">A token that can cancel the queued operation before it starts.</param>
+    /// <returns>A task that completes with the delegate result, faults with the original exception, or is canceled.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="work"/> is <see langword="null"/>.</exception>
     public static Task<T?> RunAsync<T>(Func<StaYield, T?> work, CancellationToken cancellationToken = default)
     {
         if (work is null)
@@ -61,6 +73,13 @@ public static class SingleThreadedApartmentTaskScheduler
 #pragma warning restore CC0031
     }
 
+    /// <summary>
+    /// Queues an action onto the shared STA scheduler and provides a <see cref="StaYield"/> helper for cooperative message pumping.
+    /// </summary>
+    /// <param name="work">The action to execute on the shared STA thread.</param>
+    /// <param name="cancellationToken">A token that can cancel the queued operation before it starts.</param>
+    /// <returns>A task that completes when the action finishes, faults with the original exception, or is canceled.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="work"/> is <see langword="null"/>.</exception>
     public static Task RunAsync(Action<StaYield> work, CancellationToken cancellationToken = default)
     {
         if (work is null)
@@ -84,6 +103,14 @@ public static class SingleThreadedApartmentTaskScheduler
 #pragma warning restore CC0031
     }
 
+    /// <summary>
+    /// Queues a delegate onto the shared STA scheduler.
+    /// </summary>
+    /// <typeparam name="T">The type returned by the delegate.</typeparam>
+    /// <param name="func">The delegate to execute on the shared STA thread.</param>
+    /// <param name="cancellationToken">A token that can cancel the queued operation before it starts.</param>
+    /// <returns>A task that completes with the delegate result, faults with the original exception, or is canceled.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="func"/> is <see langword="null"/>.</exception>
     public static Task<T?> RunAsync<T>(Func<T?> func, CancellationToken cancellationToken)
     {
         if (func is null)
@@ -107,6 +134,9 @@ public static class SingleThreadedApartmentTaskScheduler
         return item.Task;
     }
 
+    /// <summary>
+    /// Stops the scheduler from accepting new work and signals the background STA thread to shut down.
+    /// </summary>
     public static void Shutdown()
     {
         if (_isShuttingDown)

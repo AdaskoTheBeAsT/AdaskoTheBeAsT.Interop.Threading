@@ -5,10 +5,19 @@ using System.Threading.Tasks;
 namespace AdaskoTheBeAsT.Interop.Threading;
 
 /// <summary>
-/// http://stackoverflow.com/questions/16720496/set-apartmentstate-on-a-task.
+/// Runs delegates on a dedicated background STA thread.
+/// Each call creates a new thread, executes the supplied delegate there, and pumps any remaining messages before the thread exits.
 /// </summary>
 public static class SingleThreadedApartmentTask
 {
+    /// <summary>
+    /// Runs a delegate on a dedicated STA thread and provides a <see cref="StaYield"/> helper for cooperative message pumping.
+    /// </summary>
+    /// <typeparam name="T">The type returned by the delegate.</typeparam>
+    /// <param name="func">The delegate to execute on the STA thread.</param>
+    /// <param name="cancellationToken">A token that can cancel the operation before or during execution.</param>
+    /// <returns>A task that completes with the delegate result, faults with the original exception, or is canceled.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="func"/> is <see langword="null"/>.</exception>
     public static Task<T> RunAsync<T>(
         Func<StaYield, T> func,
         CancellationToken cancellationToken)
@@ -23,6 +32,15 @@ public static class SingleThreadedApartmentTask
 
     // ReSharper disable once InconsistentNaming
     // ReSharper disable once MemberCanBePrivate.Global
+
+    /// <summary>
+    /// Runs a delegate on a dedicated STA thread.
+    /// </summary>
+    /// <typeparam name="T">The type returned by the delegate.</typeparam>
+    /// <param name="func">The delegate to execute on the STA thread.</param>
+    /// <param name="cancellationToken">A token that can cancel the operation before or during execution.</param>
+    /// <returns>A task that completes with the delegate result, faults with the original exception, or is canceled.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="func"/> is <see langword="null"/>.</exception>
     public static Task<T> RunAsync<T>(
         Func<T> func,
         CancellationToken cancellationToken)
@@ -73,6 +91,14 @@ public static class SingleThreadedApartmentTask
         return tcs.Task;
     }
 
+    /// <summary>
+    /// Runs a delegate on a dedicated STA thread and applies a timeout to the resulting task.
+    /// </summary>
+    /// <typeparam name="T">The type returned by the delegate.</typeparam>
+    /// <param name="timeSpan">The maximum amount of time to wait for the delegate to complete.</param>
+    /// <param name="func">The delegate to execute on the STA thread.</param>
+    /// <param name="cancellationToken">A token that can cancel the operation before the timeout expires.</param>
+    /// <returns>A task that completes with the delegate result, faults with the original exception, times out, or is canceled.</returns>
     public static Task<T> RunWithTimeoutAsync<T>(
         TimeSpan timeSpan,
         Func<T> func,

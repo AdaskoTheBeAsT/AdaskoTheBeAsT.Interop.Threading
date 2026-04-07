@@ -7,21 +7,51 @@ using System.Threading;
 namespace AdaskoTheBeAsT.Interop.Threading;
 
 /// <summary>
-/// http://stackoverflow.com/questions/229565/what-is-a-good-pattern-for-using-a-global-mutex-in-c.
+/// Executes delegates while holding a named operating-system mutex.
+/// This is useful when work must be serialized across threads or processes.
 /// </summary>
 public static class MutexHelper
 {
+    /// <summary>
+    /// Runs a delegate while holding a named global mutex and waits indefinitely to acquire it.
+    /// </summary>
+    /// <typeparam name="T">The type returned by the delegate.</typeparam>
+    /// <param name="name">The mutex name, without the <c>Global\</c> prefix.</param>
+    /// <param name="func">The delegate to execute after the mutex is acquired.</param>
+    /// <returns>The value returned by <paramref name="func"/>.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="func"/> is <see langword="null"/>.</exception>
     public static T RunInMutex<T>(string name, Func<T> func)
     {
         return RunInMutex(name, Timeout.InfiniteTimeSpan, isGlobal: true, func);
     }
 
+    /// <summary>
+    /// Runs a delegate while holding a named global mutex.
+    /// </summary>
+    /// <typeparam name="T">The type returned by the delegate.</typeparam>
+    /// <param name="name">The mutex name, without the <c>Global\</c> prefix.</param>
+    /// <param name="timeout">How long to wait to acquire the mutex.</param>
+    /// <param name="func">The delegate to execute after the mutex is acquired.</param>
+    /// <returns>The value returned by <paramref name="func"/>.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="func"/> is <see langword="null"/>.</exception>
+    /// <exception cref="TimeoutException">Thrown when the mutex cannot be acquired within <paramref name="timeout"/>.</exception>
     public static T RunInMutex<T>(string name, TimeSpan timeout, Func<T> func)
     {
         return RunInMutex(name, timeout, isGlobal: true, func);
     }
 
 #pragma warning disable MA0051
+    /// <summary>
+    /// Runs a delegate while holding a named mutex, optionally using the machine-wide <c>Global\</c> namespace.
+    /// </summary>
+    /// <typeparam name="T">The type returned by the delegate.</typeparam>
+    /// <param name="name">The mutex name.</param>
+    /// <param name="timeout">How long to wait to acquire the mutex.</param>
+    /// <param name="isGlobal"><see langword="true"/> to use a machine-wide mutex name prefixed with <c>Global\</c>; otherwise use a local name.</param>
+    /// <param name="func">The delegate to execute after the mutex is acquired.</param>
+    /// <returns>The value returned by <paramref name="func"/>.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="func"/> is <see langword="null"/>.</exception>
+    /// <exception cref="TimeoutException">Thrown when the mutex cannot be acquired within <paramref name="timeout"/>.</exception>
     public static T RunInMutex<T>(string name, TimeSpan timeout, bool isGlobal, Func<T> func)
 #pragma warning restore MA0051
     {
