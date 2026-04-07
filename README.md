@@ -248,6 +248,392 @@ public async Task<string> GetClipboardTextAsync(CancellationToken ct) {
 }
 ```
 
+### Using with AdaskoTheBeAsT.Interop.COM
+`AdaskoTheBeAsT.Interop.COM` handles registration-free COM activation, while this library provides the STA thread and scheduling model around those calls.
+
+For a one-off COM calculation with timeout:
+
+```csharp
+var value = await SingleThreadedApartmentTask.RunWithTimeoutAsync(
+    TimeSpan.FromSeconds(10),
+    () =>
+    {
+        decimal result = default;
+        var execution = Executor.Execute(comDllPath, manifestPath, () =>
+        {
+            var calculator = new LegacyCalculator.CalculatorClass();
+            result = calculator.Add(left, right);
+        });
+
+        if (!execution.Success)
+        {
+            throw new InvalidOperationException("The COM calculation failed.", execution.Exception);
+        }
+
+        return result;
+    },
+    cancellationToken);
+```
+
+For repeated COM calculations that must stay serialized on one STA thread, use `SingleThreadedApartmentTaskScheduler.RunAsync(...)`.
+
+See [Using AdaskoTheBeAsT.Interop.Threading with AdaskoTheBeAsT.Interop.COM](docs/using-with-adaskothebeast-interop-com.md) for a full guide.
+
+### Hosted Service for serialized COM requests
+If the COM server hangs when multiple callers invoke it in parallel, put a queue in front of a single STA worker.
+
+The pattern is:
+
+1. create the COM object once in `StartAsync` while the manifest activation context is active;
+2. accept incoming requests through a queue;
+3. process each request through `SingleThreadedApartmentTaskScheduler.RunAsync(...)` so every call stays on the same STA thread and runs one-by-one.
+
+```csharp
+using System.Runtime.InteropServices;
+using System.Threading.Channels;
+using AdaskoTheBeAsT.Interop.COM;
+using AdaskoTheBeAsT.Interop.Threading;
+using Microsoft.Extensions.Hosting;
+
+public sealed class CalculationRequest
+{
+    public required decimal Left { get; init; }
+    public required decimal Right { get; init; }
+    public required TaskCompletionSource<decimal> Completion { get; init; }
+}
+
+public sealed class ComCalculationHostedService : BackgroundService
+{
+    private readonly Channel<CalculationRequest> _requests = Channel.CreateUnbounded<CalculationRequest>();
+    private readonly string _comDllPath;
+    private readonly string _manifestPath;
+    private LegacyCalculator.CalculatorClass? _calculator;
+
+    public ComCalculationHostedService()
+    {
+        var basePath = AppContext.BaseDirectory;
+        _comDllPath = Path.Combine(basePath, "LegacyCalculator.dll");
+        _manifestPath = Path.Combine(basePath, "LegacyCalculator.manifest");
+    }
+
+    public override async Task StartAsync(CancellationToken cancellationToken)
+    {
+        await SingleThreadedApartmentTaskScheduler.RunAsync(
+            () =>
+            {
+                var execution = Executor.Execute(_comDllPath, _manifestPath, () =>
+                {
+                    _calculator = new LegacyCalculator.CalculatorClass();
+                });
+
+                if (!execution.Success)
+                {
+                    throw new InvalidOperationException(
+                        "Failed to initialize the COM calculator.",
+                        execution.Exception);
+                }
+
+                return 0;
+            },
+            cancellationToken);
+
+        await base.StartAsync(cancellationToken);
+    }
+
+    public async Task<decimal> AddAsync(decimal left, decimal right, CancellationToken cancellationToken)
+    {
+        var completion = new TaskCompletionSource<decimal>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var registration = cancellationToken.Register(
+            static state => ((TaskCompletionSource<decimal>)state!).TrySetCanceled(),
+            completion);
+
+        await _requests.Writer.WriteAsync(
+            new CalculationRequest
+            {
+                Left = left,
+                Right = right,
+                Completion = completion,
+            },
+            cancellationToken);
+
+        return await completion.Task;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        await foreach (var request in _requests.Reader.ReadAllAsync(stoppingToken))
+        {
+            try
+            {
+                var value = await SingleThreadedApartmentTaskScheduler.RunAsync(
+                    () =>
+                    {
+                        if (_calculator is null)
+                        {
+                            throw new InvalidOperationException("The COM calculator is not initialized.");
+                        }
+
+                        return _calculator.Add(request.Left, request.Right);
+                    },
+                    stoppingToken);
+
+                request.Completion.TrySetResult(value);
+            }
+            catch (Exception ex)
+            {
+                request.Completion.TrySetException(ex);
+            }
+        }
+    }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        _requests.Writer.TryComplete();
+
+        await SingleThreadedApartmentTaskScheduler.RunAsync(
+            () =>
+            {
+                if (_calculator is not null)
+                {
+                    Marshal.FinalReleaseComObject(_calculator);
+                    _calculator = null;
+                }
+
+                return 0;
+            },
+            cancellationToken);
+
+        await base.StopAsync(cancellationToken);
+    }
+}
+```
+
+Register it once and expose the same instance both as hosted service and as an injectable service:
+
+```csharp
+builder.Services.AddSingleton<ComCalculationHostedService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ComCalculationHostedService>());
+```
+
+This pattern is useful when:
+
+- the COM object must always be created and used on the same STA thread;
+- parallel calls would deadlock or hang the COM server;
+- you want the rest of the application to remain async while the COM work is serialized behind the queue.
+
+### Multiple different COM components in the same app
+
+`SingleThreadedApartmentTaskScheduler` is one reusable STA thread for the whole process. If you send every COM component through it, all calls will be serialized on that same STA thread.
+
+When the components are unrelated and do not need to share the same long-lived STA-bound instance, prefer `SingleThreadedApartmentTask.RunAsync(...)` or `SingleThreadedApartmentTask.RunWithTimeoutAsync(...)`. Each call gets its own temporary STA thread, so different COM components can run independently.
+
+```csharp
+using System.Runtime.InteropServices;
+using AdaskoTheBeAsT.Interop.COM;
+using AdaskoTheBeAsT.Interop.Threading;
+
+public sealed class MultiComFacade
+{
+    private readonly string _calculatorDllPath;
+    private readonly string _calculatorManifestPath;
+    private readonly string _reportDllPath;
+    private readonly string _reportManifestPath;
+
+    public MultiComFacade(
+        string calculatorDllPath,
+        string calculatorManifestPath,
+        string reportDllPath,
+        string reportManifestPath)
+    {
+        _calculatorDllPath = calculatorDllPath;
+        _calculatorManifestPath = calculatorManifestPath;
+        _reportDllPath = reportDllPath;
+        _reportManifestPath = reportManifestPath;
+    }
+
+    public Task<decimal> AddAsync(decimal left, decimal right, CancellationToken cancellationToken)
+        => SingleThreadedApartmentTask.RunWithTimeoutAsync(
+            TimeSpan.FromSeconds(10),
+            () =>
+            {
+                decimal result = default;
+                LegacyCalculator.CalculatorClass? calculator = null;
+
+                var execution = Executor.Execute(_calculatorDllPath, _calculatorManifestPath, () =>
+                {
+                    calculator = new LegacyCalculator.CalculatorClass();
+                    result = calculator.Add(left, right);
+                });
+
+                if (calculator is not null)
+                {
+                    Marshal.FinalReleaseComObject(calculator);
+                }
+
+                if (!execution.Success)
+                {
+                    throw new InvalidOperationException(
+                        "The calculator COM call failed.",
+                        execution.Exception);
+                }
+
+                return result;
+            },
+            cancellationToken);
+
+    public Task<string> BuildReportAsync(int reportId, CancellationToken cancellationToken)
+        => SingleThreadedApartmentTask.RunWithTimeoutAsync(
+            TimeSpan.FromSeconds(30),
+            () =>
+            {
+                string report = string.Empty;
+                LegacyReporting.ReportGeneratorClass? generator = null;
+
+                var execution = Executor.Execute(_reportDllPath, _reportManifestPath, () =>
+                {
+                    generator = new LegacyReporting.ReportGeneratorClass();
+                    report = generator.Build(reportId);
+                });
+
+                if (generator is not null)
+                {
+                    Marshal.FinalReleaseComObject(generator);
+                }
+
+                if (!execution.Success)
+                {
+                    throw new InvalidOperationException(
+                        "The report COM call failed.",
+                        execution.Exception);
+                }
+
+                return report;
+            },
+            cancellationToken);
+}
+```
+
+That lets you do this:
+
+```csharp
+var addTask = multiComFacade.AddAsync(10m, 5m, cancellationToken);
+var reportTask = multiComFacade.BuildReportAsync(42, cancellationToken);
+
+await Task.WhenAll(addTask, reportTask);
+```
+
+#### If the COM object should be instantiated only once
+
+Then keep using the `ComCalculationHostedService` / `SingleThreadedApartmentTaskScheduler` pattern for that component. `SingleThreadedApartmentTask` creates a new temporary STA thread per call, so it is the right choice only when the COM object is created, used, and released inside that single invocation.
+
+For a reusable COM instance:
+
+1. create it once in `StartAsync` on the scheduler thread;
+2. store it in a field;
+3. route every operation back through `SingleThreadedApartmentTaskScheduler.RunAsync(...)`;
+4. release it in `StopAsync`.
+
+The call path then looks like this:
+
+```csharp
+public Task<decimal> AddAsync(decimal left, decimal right, CancellationToken cancellationToken)
+    => SingleThreadedApartmentTaskScheduler.RunAsync(
+        () =>
+        {
+            if (_calculator is null)
+            {
+                throw new InvalidOperationException("The COM calculator is not initialized.");
+            }
+
+            return _calculator.Add(left, right);
+        },
+        cancellationToken);
+```
+
+#### If several different COM objects should each be instantiated only once
+
+If those COM objects can all live on the same STA thread, create them together in one hosted service and reuse them through `SingleThreadedApartmentTaskScheduler`.
+
+```csharp
+private LegacyCalculator.CalculatorClass? _calculator;
+private LegacyReporting.ReportGeneratorClass? _reportGenerator;
+
+public override async Task StartAsync(CancellationToken cancellationToken)
+{
+    await SingleThreadedApartmentTaskScheduler.RunAsync(
+        () =>
+        {
+            var calculatorExecution = Executor.Execute(_calculatorDllPath, _calculatorManifestPath, () =>
+            {
+                _calculator = new LegacyCalculator.CalculatorClass();
+            });
+
+            if (!calculatorExecution.Success)
+            {
+                throw new InvalidOperationException(
+                    "Failed to initialize the calculator COM component.",
+                    calculatorExecution.Exception);
+            }
+
+            var reportExecution = Executor.Execute(_reportDllPath, _reportManifestPath, () =>
+            {
+                _reportGenerator = new LegacyReporting.ReportGeneratorClass();
+            });
+
+            if (!reportExecution.Success)
+            {
+                throw new InvalidOperationException(
+                    "Failed to initialize the reporting COM component.",
+                    reportExecution.Exception);
+            }
+
+            return 0;
+        },
+        cancellationToken);
+
+    await base.StartAsync(cancellationToken);
+}
+
+public Task<decimal> AddAsync(decimal left, decimal right, CancellationToken cancellationToken)
+    => SingleThreadedApartmentTaskScheduler.RunAsync(
+        () =>
+        {
+            if (_calculator is null)
+            {
+                throw new InvalidOperationException("The calculator COM component is not initialized.");
+            }
+
+            return _calculator.Add(left, right);
+        },
+        cancellationToken);
+
+public Task<string> BuildReportAsync(int reportId, CancellationToken cancellationToken)
+    => SingleThreadedApartmentTaskScheduler.RunAsync(
+        () =>
+        {
+            if (_reportGenerator is null)
+            {
+                throw new InvalidOperationException("The reporting COM component is not initialized.");
+            }
+
+            return _reportGenerator.Build(reportId);
+        },
+        cancellationToken);
+```
+
+Release every COM object in `StopAsync` on the same scheduler thread, just like in the single-component hosted service example above.
+
+This gives you one app-wide STA lane where multiple COM components are instantiated once and reused safely.
+
+If those reusable components must run in parallel, `SingleThreadedApartmentTaskScheduler` alone is not enough because it is a single global STA thread. In that case you need separate dedicated STA workers.
+
+Use this mixed approach in one application:
+
+- use `SingleThreadedApartmentTaskScheduler` for a component that must stay alive on one dedicated STA thread across many requests;
+- use `SingleThreadedApartmentTask` for one-off or isolated calls to other COM components;
+- keep all operations for a single STA-bound COM instance inside the same scheduled workflow.
+
 ### Periodic Task with Cancellation
 ```csharp
 public async Task RunPeriodicTaskAsync(CancellationToken ct) {
@@ -269,6 +655,16 @@ public async Task RunPeriodicTaskAsync(CancellationToken ct) {
 - **P/Invoke**: Uses modern `LibraryImport` source generators on .NET 8+ for better performance
 - **Thread Safety**: All APIs are thread-safe
 - **Async/Await**: Full async/await support with proper ConfigureAwait usage
+
+## 🧭 Architecture Decision Records
+
+- [ADR 0001: Harden timeout cancellation and STA scheduler dispatch](docs/adr/0001-hardening-timeouts-and-sta-scheduler.md)
+
+Recent hardening changes were made so that:
+
+- `TimeoutAfterAsync` correctly distinguishes caller cancellation from an actual timeout;
+- `SingleThreadedApartmentTaskScheduler` preserves original exceptions from queued work;
+- queued STA operations no longer risk returning a canceled wrapper task after the work has already been accepted for execution.
 
 ## 📝 License
 

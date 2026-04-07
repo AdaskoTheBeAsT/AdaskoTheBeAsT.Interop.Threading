@@ -34,4 +34,22 @@ public class TaskExtensionTest
         var result = await t.TimeoutAfterAsync(TimeSpan.FromMilliseconds(200), CancellationToken.None);
         result.Should().Be(99);
     }
+
+    [Fact]
+    public async Task TimeoutAfterAsync_PropagatesCancellation()
+    {
+        using var cts = new CancellationTokenSource();
+        var never = new TaskCompletionSource<int>();
+
+        cts.CancelAfter(50);
+
+        Func<Task> act = async () =>
+        {
+#pragma warning disable VSTHRD003
+            _ = await never.Task.TimeoutAfterAsync(TimeSpan.FromSeconds(5), cts.Token);
+#pragma warning restore VSTHRD003
+        };
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
 }

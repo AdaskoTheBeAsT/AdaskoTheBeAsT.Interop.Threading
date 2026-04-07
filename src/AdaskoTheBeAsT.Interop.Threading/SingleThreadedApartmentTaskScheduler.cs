@@ -8,10 +8,7 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 
 public static class SingleThreadedApartmentTaskScheduler
 {
-    private static readonly ConcurrentQueue<(Delegate Work, TaskCompletionSource<object?> TaskCompletionSource)>
-        _queue
-            = new();
-
+    private static readonly ConcurrentQueue<IStaWorkItem> _queue = new();
     private static readonly AutoResetEvent _workAvailable = new(false);
     private static readonly ManualResetEvent _shutdownEvent = new(false);
     private static volatile bool _isShuttingDown;
@@ -104,15 +101,10 @@ public static class SingleThreadedApartmentTaskScheduler
             return Task.FromException<T?>(new InvalidOperationException("The STA task scheduler is shutting down."));
         }
 
-        var tcs = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _queue.Enqueue((func, tcs));
+        var item = new StaWorkItem<T>(func, cancellationToken);
+        _queue.Enqueue(item);
         _workAvailable.Set();
-        return tcs.Task.ContinueWith(
-            t =>
-                (T?)t.Result,
-            cancellationToken,
-            TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
+        return item.Task;
     }
 
     public static void Shutdown()
@@ -145,20 +137,7 @@ public static class SingleThreadedApartmentTaskScheduler
 
             if (result == NativeMethods.WAIT_OBJECT_0)
             {
-                if (_queue.TryDequeue(out var item))
-                {
-                    try
-                    {
-                        var res = item.Work.DynamicInvoke();
-                        item.TaskCompletionSource.TrySetResult(res);
-                    }
-                    catch (Exception ex)
-                    {
-                        item.TaskCompletionSource.SetException(ex);
-                    }
-
-                    NativeMethods.PumpPendingMessages();
-                }
+                ProcessQueuedItems();
             }
             else if (result == NativeMethods.WAIT_OBJECT_0 + 1)
             {
@@ -176,7 +155,16 @@ public static class SingleThreadedApartmentTaskScheduler
 
         while (_queue.TryDequeue(out var item))
         {
-            item.TaskCompletionSource.TrySetCanceled();
+            item.Cancel();
+        }
+    }
+
+    private static void ProcessQueuedItems()
+    {
+        while (_queue.TryDequeue(out var item))
+        {
+            item.Execute();
+            NativeMethods.PumpPendingMessages();
         }
     }
 }

@@ -77,21 +77,43 @@ public class SingleThreadedApartmentTaskSchedulerTest
         var second = SingleThreadedApartmentTaskScheduler.RunAsync<object?>(() => null, CancellationToken.None);
 
         var combined = Task.WhenAll(first, second);
+#if NET8_0_OR_GREATER
+        var completed = await Task.WhenAny(combined, Task.Delay(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+#else
         var completed = await Task.WhenAny(combined, Task.Delay(TimeSpan.FromSeconds(5)));
-
+#endif
         ReferenceEquals(combined, completed).Should().BeTrue("both items should complete promptly when the pump runs after each item");
     }
 
     [Fact]
-    public void RunAsync_FastFails_WhenAlreadyCanceled()
+    public Task RunAsync_PropagatesOriginalException()
+    {
+        SkipIfNotWindows();
+
+        Func<Task> act = async () =>
+            await SingleThreadedApartmentTaskScheduler.RunAsync<object?>(
+                () => throw new InvalidOperationException("boom"),
+                CancellationToken.None);
+
+        return act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("boom");
+    }
+
+    [Fact]
+    public async Task RunAsync_FastFails_WhenAlreadyCanceledAsync()
     {
         SkipIfNotWindows();
 
         using var cts = new CancellationTokenSource();
+#if NET8_0_OR_GREATER
+        await cts.CancelAsync();
+#else
         cts.Cancel();
+#endif
 
-        var task = SingleThreadedApartmentTaskScheduler.RunAsync(() => 1, cts.Token);
-        task.IsCanceled.Should().BeTrue();
+        var act = async () => await SingleThreadedApartmentTaskScheduler.RunAsync(() => 1, cts.Token);
+
+        await act.Should().ThrowAsync<TaskCanceledException>();
     }
 
     private static void SkipIfNotWindows()

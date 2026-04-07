@@ -35,12 +35,16 @@ public class SingleThreadedApartmentTaskTest
     }
 
     [Fact]
-    public void RunAsync_FastFails_WhenAlreadyCanceled()
+    public async Task RunAsync_FastFails_WhenAlreadyCanceledAsync()
     {
         using var cts = new CancellationTokenSource();
+#if NET8_0_OR_GREATER
+        await cts.CancelAsync();
+#else
         cts.Cancel();
+#endif
+        var act = async () => await SingleThreadedApartmentTask.RunAsync(() => 42, cts.Token);
 
-        var task = SingleThreadedApartmentTask.RunAsync(() => 42, cts.Token);
-        task.IsCanceled.Should().BeTrue();
+        await act.Should().ThrowAsync<TaskCanceledException>();
     }
 }

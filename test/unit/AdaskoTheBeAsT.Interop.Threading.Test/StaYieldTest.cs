@@ -25,12 +25,21 @@ public class StaYieldTest
         var y = new StaYield();
         var flag = false;
 
+#if NET8_0_OR_GREATER
+        _ = Task.Run(
+            async () =>
+            {
+                await Task.Delay(50, TestContext.Current.CancellationToken);
+                flag = true;
+            },
+            TestContext.Current.CancellationToken);
+#else
         _ = Task.Run(async () =>
         {
             await Task.Delay(50);
             flag = true;
         });
-
+#endif
         y.SpinUntil(() => flag, 5);
         flag.Should().BeTrue();
 #pragma warning restore ParallelChecker
