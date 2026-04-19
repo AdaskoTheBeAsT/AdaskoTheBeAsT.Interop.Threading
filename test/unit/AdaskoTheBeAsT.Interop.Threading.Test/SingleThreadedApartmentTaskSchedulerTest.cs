@@ -255,21 +255,17 @@ public class SingleThreadedApartmentTaskSchedulerTest
         SkipIfNotWindows();
 
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
-        using var cts = new CancellationTokenSource();
-#if NET8_0_OR_GREATER
-        await cts.CancelAsync();
-#else
-        cts.Cancel();
-#endif
 
+        // Use a non-canceled token so RunAsync does NOT short-circuit on the
+        // pre-canceled token. The delegate itself throws OperationCanceledException
+        // so this test exercises the mapping of a user-raised OCE to a canceled task.
 #pragma warning disable VSTHRD003
         var task = scheduler.RunAsync<int>(
             () =>
             {
-                cts.Token.ThrowIfCancellationRequested();
-                return 0;
+                throw new OperationCanceledException();
             },
-            cts.Token);
+            CancellationToken.None);
 
         var act = async () => await task;
 #pragma warning restore VSTHRD003

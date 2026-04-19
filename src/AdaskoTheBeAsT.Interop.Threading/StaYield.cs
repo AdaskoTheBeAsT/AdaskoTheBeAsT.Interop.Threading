@@ -71,8 +71,26 @@ public sealed class StaYield(int intervalMs = 15)
 
             Occasionally();
 
-            var remainingMs = (int)(remainingTicks * 1000L / Stopwatch.Frequency);
-            Thread.Sleep(Math.Min(10, Math.Max(1, remainingMs)));
+            // Convert remaining ticks to milliseconds using overflow-safe math.
+            // We only need to know whether the remainder is >= 10 ms (in which
+            // case we sleep a fixed 10 ms) or a small tail (sleep 1..9 ms), so
+            // avoid the long multiplication entirely for the common "far from
+            // deadline" case that would otherwise overflow on long waits.
+            var tenMsTicks = MillisecondsToTicks(10);
+            int sleepMs;
+            if (remainingTicks >= tenMsTicks)
+            {
+                sleepMs = 10;
+            }
+            else
+            {
+                var remainingMsDouble = (double)remainingTicks * 1000.0 / Stopwatch.Frequency;
+                sleepMs = remainingMsDouble >= 10.0
+                    ? 10
+                    : Math.Max(1, (int)remainingMsDouble);
+            }
+
+            Thread.Sleep(sleepMs);
         }
     }
 

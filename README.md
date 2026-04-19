@@ -5,7 +5,7 @@
 [![NuGet](https://img.shields.io/nuget/v/AdaskoTheBeAsT.Interop.Threading.svg?label=AdaskoTheBeAsT.Interop.Threading&logo=nuget)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Threading/)
 [![NuGet downloads](https://img.shields.io/nuget/dt/AdaskoTheBeAsT.Interop.Threading.svg?logo=nuget&label=downloads)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Threading/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-![TFMs](https://img.shields.io/badge/TFMs-net10.0%20%7C%20net9.0%20%7C%20net8.0%20%7C%20net4.6.2%E2%80%93net4.8.1-512BD4?logo=dotnet)
+![TFMs](https://img.shields.io/badge/TFMs-net10.0--windows%20%7C%20net9.0--windows%20%7C%20net8.0--windows%20%7C%20net4.6.2%E2%80%93net4.8.1-512BD4?logo=dotnet)
 ![Platform](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)
 ![Warnings](https://img.shields.io/badge/warnings--as--errors-on-green)
 ![Deterministic](https://img.shields.io/badge/deterministic%20build-on-blue)
@@ -54,7 +54,7 @@ And now it's a library. ✨
 - 🪟 **9 TFMs, all green.** `net10.0-windows`, `net9.0-windows`, `net8.0-windows`, `net481`, `net48`, `net472`, `net471`, `net47`, `net462` — the full matrix on every build.
 - 🔎 **Source Link + `snupkg`.** Step into the library from your debugger without guessing.
 - 🛡️ **Warnings-as-errors + deterministic builds.** Because future-you deserves reproducibility.
-- 📐 **Tiny surface.** Four public types: `MutexHelper`, `SingleThreadedApartmentTask`, `SingleThreadedApartmentTaskScheduler`, `TaskExtension`.
+- 📐 **Tiny public surface.** Seven public types: `MutexHelper`, `SingleThreadedApartmentTask`, `SingleThreadedApartmentTaskScheduler`, `ISingleThreadedApartmentTaskScheduler`, `SingleThreadedApartmentTaskSchedulerOptions`, `StaYield`, `TaskExtension`.
 
 ---
 

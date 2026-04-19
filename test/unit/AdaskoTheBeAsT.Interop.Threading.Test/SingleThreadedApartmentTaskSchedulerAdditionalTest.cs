@@ -28,24 +28,35 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     }
 
     [Fact]
-    public void Ctor_NullOptions_UsesDefaults()
+    public async Task Ctor_NullOptions_UsesDefaultsAsync()
     {
         SkipIfNotWindows();
 
         using var scheduler = new SingleThreadedApartmentTaskScheduler(options: null);
 
-        scheduler.Should().NotBeNull();
+        // Observable default: the STA thread name equals
+        // SingleThreadedApartmentTaskSchedulerOptions.DefaultThreadName.
+        var threadName = await scheduler.RunAsync(
+            static _ => Thread.CurrentThread.Name,
+            CancellationToken.None);
+
+        threadName.Should().Be(SingleThreadedApartmentTaskSchedulerOptions.DefaultThreadName);
     }
 
     [Fact]
-    public void Ctor_WhitespaceThreadName_FallsBackToDefault()
+    public async Task Ctor_WhitespaceThreadName_FallsBackToDefaultAsync()
     {
         SkipIfNotWindows();
 
         using var scheduler = new SingleThreadedApartmentTaskScheduler(
             new SingleThreadedApartmentTaskSchedulerOptions { ThreadName = "   " });
 
-        scheduler.Should().NotBeNull();
+        // Observable fallback: whitespace ThreadName is replaced with DefaultThreadName.
+        var threadName = await scheduler.RunAsync(
+            static _ => Thread.CurrentThread.Name,
+            CancellationToken.None);
+
+        threadName.Should().Be(SingleThreadedApartmentTaskSchedulerOptions.DefaultThreadName);
     }
 
     [Fact]
@@ -339,6 +350,7 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
 
         const int count = 25;
         var executionOrder = new int[count];
+        var executionStep = 0;
 
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
         await scheduler.RunAsync<object?>(() => null, CancellationToken.None);
@@ -357,7 +369,14 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
             tasks[i] = scheduler.RunAsync<object?>(
                 () =>
                 {
-                    executionOrder[captured] = captured;
+                    // Record the actual position in the execution sequence
+                    // using an atomic counter so that the assertion below
+                    // detects real out-of-order execution rather than
+                    // tautologically passing (executionOrder[i] == i is true
+                    // regardless of ordering when each item writes its own
+                    // captured index to its own slot).
+                    var step = Interlocked.Increment(ref executionStep) - 1;
+                    executionOrder[step] = captured;
                     return null;
                 },
                 CancellationToken.None);
