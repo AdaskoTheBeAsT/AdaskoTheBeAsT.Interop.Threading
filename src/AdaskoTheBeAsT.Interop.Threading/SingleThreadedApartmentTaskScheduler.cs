@@ -86,7 +86,27 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
         // first caller of RunAsync so an initialization failure surfaces as an
         // InvalidOperationException instead of being hidden behind cancellations
         // from DrainQueueAsCanceled().
+        //
+        // The wait is bounded so that an unexpected ThreadEntry failure before the
+        // TrySetResult/TrySetException call (e.g. an AppDomain-unload race, a
+        // P/Invoke that hard-faults, or an impossibly slow scheduler pickup of the
+        // new thread) surfaces as a clear InvalidOperationException instead of
+        // deadlocking construction. ThreadEntry also wraps its body in a try/catch
+        // that pushes the exception onto _threadReady, so any throwable propagates
+        // here deterministically.
+        //
+        // VSTHRD002 is suppressed because the blocking wait is intentional and is
+        // the synchronization boundary between "ctor returns" and "STA thread is
+        // ready to receive work". Making the constructor async would push the
+        // waiting burden onto every caller without removing the underlying wait.
 #pragma warning disable VSTHRD002
+        var initTimeout = TimeSpan.FromSeconds(30);
+        if (!_threadReady.Task.Wait(initTimeout))
+        {
+            throw new InvalidOperationException(
+                $"Timed out after {initTimeout} while waiting for the STA thread '{threadName}' to initialize.");
+        }
+
         _threadReady.Task.GetAwaiter().GetResult();
 #pragma warning restore VSTHRD002
     }
@@ -278,24 +298,117 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
         CancellationToken cancellationToken)
     {
         // A Dispose() racing with RunAsync after the _disposedState check can tear
-        // down _shutdownCts or _workAvailable while we're mid-enqueue. EnqueueCore
-        // performs the work and surfaces an ODE synchronously; we catch it here and
-        // project it into a faulted Task so RunAsync honors its contract of never
-        // throwing at call-site on shutdown races.
+        // down _shutdownCts or _workAvailable while we're mid-enqueue.
+        // EnqueueWorkItem surfaces an ObjectDisposedException synchronously; we
+        // catch it here and project it into a faulted Task so RunAsync honors its
+        // contract of never throwing at the call site on shutdown races.
+        if (timeout == Timeout.InfiniteTimeSpan)
+        {
+            try
+            {
+                return EnqueueWorkItem(func, cancellationToken);
+            }
+            catch (ObjectDisposedException ex)
+            {
+                return Task.FromException<T?>(ex);
+            }
+        }
+
+        // Cooperative timeout model: the work item itself observes a timeout-aware
+        // cancellation token, so when the timeout expires the delegate is asked to
+        // cancel and the STA thread is not left blocked running stale work after
+        // the caller has already observed a TimeoutException. We then map the
+        // resulting cancellation to TimeoutException at the caller's await.
+        return EnqueueWithCooperativeTimeoutAsync(func, timeout, cancellationToken);
+    }
+
+    // VSTHRD200: this helper is async by design to orchestrate the timeout CTS,
+    // so the Async suffix is correct here and RCS1229 is happy.
+    private async Task<T?> EnqueueWithCooperativeTimeoutAsync<T>(
+        Func<T?> func,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        // CA2000 / IDISP001: ownership of timeoutCts is encapsulated by this
+        // method's using statement; it is disposed on every exit path.
+#pragma warning disable CA2000, IDISP001
+        using var timeoutCts = new CancellationTokenSource();
+#pragma warning restore CA2000, IDISP001
+
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            timeoutCts.Token);
+
         Task<T?> itemTask;
         try
         {
-            itemTask = EnqueueWorkItem(func, cancellationToken);
+            // Feed the combined caller + timeout token into the work item so the
+            // STA delegate cooperatively observes timeout cancellation.
+            itemTask = EnqueueWorkItem(func, linkedCts.Token);
         }
         catch (ObjectDisposedException ex)
         {
-            return Task.FromException<T?>(ex);
+            return await Task.FromException<T?>(ex).ConfigureAwait(false);
         }
 
-        return timeout == Timeout.InfiniteTimeSpan
-            ? itemTask
-            : itemTask.TimeoutAfterAsync(timeout, cancellationToken);
+        var delayTask = Task.Delay(timeout, linkedCts.Token);
+#pragma warning disable VSTHRD003
+        var finished = await Task.WhenAny(itemTask, delayTask).ConfigureAwait(false);
+#pragma warning restore VSTHRD003
+
+        return await ObserveTimeoutOutcomeAsync(itemTask, finished, timeout, timeoutCts, cancellationToken).ConfigureAwait(false);
     }
+
+    // Splits the "who finished first" branching off the orchestrator so the
+    // outer async method stays under MA0051's 60-line ceiling.
+    // AsyncFixer01 is suppressed because, although the "itemTask finished first"
+    // branch awaits a single task, the "timeout fired first" branch must throw
+    // TimeoutException after honoring caller cancellation, so the method cannot
+    // be reduced to "return task directly". The async wrapper is required.
+    // SA1204 is suppressed because keeping this static helper grouped with the
+    // timeout orchestration it supports is more readable than splitting statics
+    // into a separate section at the top of the file.
+#pragma warning disable AsyncFixer01, SA1204
+    private static async Task<T?> ObserveTimeoutOutcomeAsync<T>(
+        Task<T?> itemTask,
+        Task finished,
+        TimeSpan timeout,
+        CancellationTokenSource timeoutCts,
+        CancellationToken cancellationToken)
+    {
+        if (finished == itemTask)
+        {
+            // The work finished in time. Cancel the pending Task.Delay so it does
+            // not keep a timer running for the full timeout window after we have
+            // already observed the result.
+#if NET8_0_OR_GREATER
+            await timeoutCts.CancelAsync().ConfigureAwait(false);
+#else
+            timeoutCts.Cancel();
+#endif
+
+#pragma warning disable VSTHRD003
+            return await itemTask.ConfigureAwait(false);
+#pragma warning restore VSTHRD003
+        }
+
+        // Timeout fired first. Work item now observes the linked token
+        // cancellation cooperatively (or is drained on dequeue). Honor caller
+        // cancellation first, then surface TimeoutException.
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Avoid UnobservedTaskException when the work item eventually faults;
+        // the work item's own ContinueWith (registered in EnqueueWorkItem)
+        // still disposes its linked CTS, so there is no resource leak.
+        _ = itemTask.ContinueWith(
+            static t => _ = t.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+        throw new TimeoutException($"The operation has timed out after {timeout}.");
+    }
+#pragma warning restore AsyncFixer01, SA1204
 
     // CA2000 / IDISP001: the linked CTS ownership transfers to the ContinueWith
     // continuation, which disposes it when the work item reaches a terminal state.
@@ -341,66 +454,92 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
 
     private void ThreadEntry()
     {
+        // CA1031 is suppressed because this is the outermost handler on the STA
+        // thread itself. If we let an unexpected exception propagate here, the
+        // constructor's bounded Wait on _threadReady would still time out, but
+        // the caller would never see the real root cause. Recording the
+        // exception on _threadReady.TrySetException makes the exact failure
+        // surface synchronously at construction time.
+#pragma warning disable CA1031
         try
         {
-            _oleInitResult = NativeMethods.OleInitialize(IntPtr.Zero);
-            if (_oleInitResult < 0)
-            {
-                Debug.WriteLine($"OleInitialize failed with HRESULT: 0x{_oleInitResult:X8}");
-                _threadReady.TrySetResult(false);
-                DrainQueueAsCanceled();
-                return;
-            }
-
-            _threadReady.TrySetResult(true);
-
             try
             {
-                MessageLoopThread();
+                _oleInitResult = NativeMethods.OleInitialize(IntPtr.Zero);
+                if (_oleInitResult < 0)
+                {
+                    Debug.WriteLine($"OleInitialize failed with HRESULT: 0x{_oleInitResult:X8}");
+                    _threadReady.TrySetResult(false);
+                    DrainQueueAsCanceled();
+                    return;
+                }
+
+                _threadReady.TrySetResult(true);
+
+                try
+                {
+                    MessageLoopThread();
+                }
+                finally
+                {
+                    NativeMethods.OleUninitialize();
+                }
             }
-            finally
+            catch (Exception ex)
             {
-                NativeMethods.OleUninitialize();
+                // Ensure the constructor never deadlocks on _threadReady.Task.Wait.
+                // TrySetException is a no-op if TrySetResult already ran; that is
+                // the intended fallback for pre-init failures only.
+                Debug.WriteLine($"STA thread entry faulted before signalling readiness: {ex}");
+                _threadReady.TrySetException(ex);
             }
         }
         finally
         {
-            // Dispose the synchronization primitives on the STA thread itself, AFTER
-            // the message loop has returned. This guarantees no kernel wait (inside
-            // MsgWaitForMultipleObjects) can still be holding these handles when
-            // they are closed, eliminating the invalid-handle race that would occur
-            // if Dispose() closed them from another thread while the STA thread was
-            // still blocked on the wait.
-#pragma warning disable CA1031
-            try
-            {
-                _workAvailable.Dispose();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Disposing _workAvailable failed: {ex}");
-            }
-
-            try
-            {
-                _shutdownEvent.Dispose();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Disposing _shutdownEvent failed: {ex}");
-            }
-
-            try
-            {
-                _shutdownCts.Dispose();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Disposing _shutdownCts failed: {ex}");
-            }
+            DisposeSynchronizationPrimitivesOnStaThread();
+        }
 #pragma warning restore CA1031
+    }
+
+    // Dispose the synchronization primitives on the STA thread itself, AFTER
+    // the message loop has returned. This guarantees no kernel wait (inside
+    // MsgWaitForMultipleObjects) can still be holding these handles when they
+    // are closed, eliminating the invalid-handle race that would occur if
+    // Dispose() closed them from another thread while the STA thread was still
+    // blocked on the wait.
+    // CA1031 is suppressed because Dispose() must never throw - failing to
+    // dispose one primitive should not block the others from being cleaned up.
+#pragma warning disable CA1031
+    private void DisposeSynchronizationPrimitivesOnStaThread()
+    {
+        try
+        {
+            _workAvailable.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Disposing _workAvailable failed: {ex}");
+        }
+
+        try
+        {
+            _shutdownEvent.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Disposing _shutdownEvent failed: {ex}");
+        }
+
+        try
+        {
+            _shutdownCts.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Disposing _shutdownCts failed: {ex}");
         }
     }
+#pragma warning restore CA1031
 
     private void MessageLoopThread()
     {

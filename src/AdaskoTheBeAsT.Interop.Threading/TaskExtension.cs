@@ -34,12 +34,10 @@ public static class TaskExtension
 
         if (finished == task)
         {
-#if NETSTANDARD2_0
-            timeoutCts.Cancel();
-#endif
-
 #if NET8_0_OR_GREATER
             await timeoutCts.CancelAsync().ConfigureAwait(false);
+#else
+            timeoutCts.Cancel();
 #endif
 #pragma warning disable VSTHRD003
             return await task.ConfigureAwait(false);
