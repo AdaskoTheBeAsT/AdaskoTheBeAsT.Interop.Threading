@@ -23,7 +23,7 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private volatile bool _isShuttingDown;
-    private volatile bool _isDisposed;
+    private int _disposedState; // 0 = alive, 1 = disposing/disposed. Interlocked.
     private int _oleInitResult;
 
     /// <summary>
@@ -46,6 +46,8 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
         var threadName = string.IsNullOrWhiteSpace(effectiveOptions.ThreadName)
             ? SingleThreadedApartmentTaskSchedulerOptions.DefaultThreadName
             : effectiveOptions.ThreadName;
+
+        ValidateTimeout(effectiveOptions.DefaultWorkItemTimeout, nameof(options));
         _defaultTimeout = effectiveOptions.DefaultWorkItemTimeout;
 
         _thread = new Thread(ThreadEntry)
@@ -125,12 +127,20 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
             throw new ArgumentNullException(nameof(func));
         }
 
+        if (timeout != Timeout.InfiniteTimeSpan && timeout < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(timeout),
+                timeout,
+                $"Timeout must be either {nameof(Timeout.InfiniteTimeSpan)} or a non-negative {nameof(TimeSpan)}.");
+        }
+
         if (cancellationToken.IsCancellationRequested)
         {
             return Task.FromCanceled<T?>(cancellationToken);
         }
 
-        if (_isDisposed)
+        if (Volatile.Read(ref _disposedState) != 0)
         {
             return Task.FromException<T?>(new ObjectDisposedException(nameof(SingleThreadedApartmentTaskScheduler)));
         }
@@ -194,12 +204,14 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
     /// </summary>
     public void Dispose()
     {
-        if (_isDisposed)
+        // Atomic one-winner guard so concurrent Dispose() calls never both run the
+        // teardown path (which would race on _thread.Join and double-dispose the
+        // synchronization primitives).
+        if (Interlocked.CompareExchange(ref _disposedState, 1, 0) != 0)
         {
             return;
         }
 
-        _isDisposed = true;
         Shutdown();
 
 #pragma warning disable CA1031
@@ -232,30 +244,45 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
-        // Link the caller token with the scheduler's shutdown token so that a
-        // pending work item is canceled if the scheduler is disposed before it runs,
-        // and a running work item observes cancellation cooperatively.
-        var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdownCts.Token);
-        var item = new StaWorkItem<T>(func, linkedCts.Token);
-        var itemTask = item.Task;
+        // A Dispose() racing with RunAsync after the _disposedState check can tear
+        // down _shutdownCts or _workAvailable while we're mid-enqueue. Catch that
+        // ObjectDisposedException and surface it through the returned task so the
+        // method honors its contract that RunAsync NEVER throws at call-site on
+        // shutdown races.
+        CancellationTokenSource? linkedCts = null;
 
-        _queue.Enqueue(item);
-        _workAvailable.Set();
-
-        // Clean up the linked CTS once the item completes (in any terminal state).
-        itemTask.ContinueWith(
-            static (_, state) => ((CancellationTokenSource)state!).Dispose(),
-            linkedCts,
-            CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
-
-        if (timeout == Timeout.InfiniteTimeSpan)
+        try
         {
-            return itemTask;
-        }
+            // Link the caller token with the scheduler's shutdown token so that a
+            // pending work item is canceled if the scheduler is disposed before it
+            // runs, and a running work item observes cancellation cooperatively.
+            linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdownCts.Token);
+            var item = new StaWorkItem<T>(func, linkedCts.Token);
+            var itemTask = item.Task;
 
-        return itemTask.TimeoutAfterAsync(timeout, cancellationToken);
+            _queue.Enqueue(item);
+            _workAvailable.Set();
+
+            // Clean up the linked CTS once the item completes (in any terminal state).
+            itemTask.ContinueWith(
+                static (_, state) => ((CancellationTokenSource)state!).Dispose(),
+                linkedCts,
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+
+            if (timeout == Timeout.InfiniteTimeSpan)
+            {
+                return itemTask;
+            }
+
+            return itemTask.TimeoutAfterAsync(timeout, cancellationToken);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            linkedCts?.Dispose();
+            return Task.FromException<T?>(ex);
+        }
     }
 #pragma warning restore CA2000, IDISP001, VSTHRD110, MA0134
 
@@ -342,5 +369,19 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
         {
             item.Cancel();
         }
+    }
+
+    private static void ValidateTimeout(TimeSpan timeout, string optionsParameterName)
+    {
+        if (timeout == Timeout.InfiniteTimeSpan || timeout >= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        throw new ArgumentOutOfRangeException(
+            optionsParameterName,
+            timeout,
+            $"{nameof(SingleThreadedApartmentTaskSchedulerOptions.DefaultWorkItemTimeout)} must be either "
+            + $"{nameof(Timeout.InfiniteTimeSpan)} or a non-negative {nameof(TimeSpan)}.");
     }
 }
