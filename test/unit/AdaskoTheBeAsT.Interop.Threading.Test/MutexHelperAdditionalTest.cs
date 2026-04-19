@@ -55,8 +55,8 @@ public class MutexHelperAdditionalTest
     {
         var name = "mutex_timeout_expire_" + Guid.NewGuid();
 
-        using var holderEntered = new ManualResetEventSlim(false);
-        using var releaseHolder = new ManualResetEventSlim(false);
+        using var holderEntered = new ManualResetEventSlim(initialState: false);
+        using var releaseHolder = new ManualResetEventSlim(initialState: false);
 
 #if NET8_0_OR_GREATER
         var testCancellationToken = TestContext.Current.CancellationToken;

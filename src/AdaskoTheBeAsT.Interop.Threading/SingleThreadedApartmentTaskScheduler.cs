@@ -285,7 +285,7 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
         Task<T?> itemTask;
         try
         {
-            itemTask = EnqueueCoreAsync<T>(func, cancellationToken);
+            itemTask = EnqueueWorkItem<T>(func, cancellationToken);
         }
         catch (ObjectDisposedException ex)
         {
@@ -301,8 +301,12 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
     // continuation, which disposes it when the work item reaches a terminal state.
     // VSTHRD110 / MA0134: the continuation result is intentionally not awaited
     // because its sole purpose is resource cleanup and it never throws.
-#pragma warning disable CA2000, IDISP001, VSTHRD110, MA0134
-    private Task<T?> EnqueueCoreAsync<T>(Func<T?> func, CancellationToken cancellationToken)
+    // VSTHRD200: this helper is deliberately NOT async and returns the work item's
+    // task unwrapped, so the "Async" suffix would be misleading (RCS1229 also
+    // forbids the suffix on non-async methods). It only performs a synchronous
+    // enqueue and surfaces synchronous ObjectDisposedException to the caller.
+#pragma warning disable CA2000, IDISP001, VSTHRD110, MA0134, VSTHRD200
+    private Task<T?> EnqueueWorkItem<T>(Func<T?> func, CancellationToken cancellationToken)
     {
         CancellationTokenSource? linkedCts = null;
         try
@@ -333,7 +337,7 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
             throw;
         }
     }
-#pragma warning restore CA2000, IDISP001, VSTHRD110, MA0134
+#pragma warning restore CA2000, IDISP001, VSTHRD110, MA0134, VSTHRD200
 
     private void ThreadEntry()
     {
