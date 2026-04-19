@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -14,9 +15,22 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartmentTaskScheduler
 {
     private readonly ConcurrentQueue<IStaWorkItem> _queue = new();
+
+    // CA2213 is suppressed because these native-handle-backed primitives are
+    // intentionally disposed on the STA thread itself (inside ThreadEntry's
+    // finally block) AFTER MsgWaitForMultipleObjects has returned. Disposing
+    // them from Dispose() on another thread could close the kernel handles
+    // while the STA thread is still blocked on the wait, producing an
+    // invalid-handle race. The lifetime owner is the STA thread, not Dispose().
+    [SuppressMessage("Microsoft.Usage", "CA2213:Disposable fields should be disposed", Justification = "Disposed on STA thread in ThreadEntry after message loop exits; see ThreadEntry.")]
     private readonly AutoResetEvent _workAvailable = new(false);
+
+    [SuppressMessage("Microsoft.Usage", "CA2213:Disposable fields should be disposed", Justification = "Disposed on STA thread in ThreadEntry after message loop exits; see ThreadEntry.")]
     private readonly ManualResetEvent _shutdownEvent = new(false);
+
+    [SuppressMessage("Microsoft.Usage", "CA2213:Disposable fields should be disposed", Justification = "Disposed on STA thread in ThreadEntry after message loop exits; see ThreadEntry.")]
     private readonly CancellationTokenSource _shutdownCts = new();
+
     private readonly Thread _thread;
     private readonly TimeSpan _defaultTimeout;
     private readonly TaskCompletionSource<bool> _threadReady =
@@ -208,13 +222,24 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
     }
 
     /// <summary>
-    /// Stops the scheduler, waits for the background STA thread to exit, and releases underlying synchronization resources.
+    /// Stops the scheduler and waits for the background STA thread to exit.
+    /// The underlying synchronization primitives (<see cref="AutoResetEvent"/>,
+    /// <see cref="ManualResetEvent"/>, <see cref="CancellationTokenSource"/>) are
+    /// disposed on the STA thread itself after its message loop has returned, so
+    /// their native handles are never closed while a kernel wait may still be
+    /// blocked on them.
     /// </summary>
+    /// <remarks>
+    /// When <see cref="Dispose"/> is invoked from the STA thread itself (for example
+    /// from inside a work-item delegate that calls <see cref="Dispose"/>), the join
+    /// step is skipped to avoid a self-deadlock. The message loop is already
+    /// unwinding on that same stack frame, and the final handle disposal still runs
+    /// in the <c>finally</c> block of <c>ThreadEntry</c> once control returns there.
+    /// </remarks>
     public void Dispose()
     {
         // Atomic one-winner guard so concurrent Dispose() calls never both run the
-        // teardown path (which would race on _thread.Join and double-dispose the
-        // synchronization primitives).
+        // teardown path (which would race on _thread.Join).
         if (Interlocked.CompareExchange(ref _disposedState, 1, 0) != 0)
         {
             return;
@@ -222,10 +247,19 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
 
         Shutdown();
 
+        // The STA thread itself performs the final handle/CTS disposal after its
+        // message loop exits (see ThreadEntry's finally). We only need to wait for
+        // that exit here - unless this call is coming FROM the STA thread, in which
+        // case joining would deadlock.
+        if (_thread == Thread.CurrentThread)
+        {
+            return;
+        }
+
 #pragma warning disable CA1031
         try
         {
-            if (_thread.IsAlive && _thread != Thread.CurrentThread)
+            if (_thread.IsAlive)
             {
                 _thread.Join();
             }
@@ -236,10 +270,6 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
             Debug.WriteLine($"STA scheduler thread join failed: {ex}");
         }
 #pragma warning restore CA1031
-
-        _workAvailable.Dispose();
-        _shutdownEvent.Dispose();
-        _shutdownCts.Dispose();
     }
 
     // CA2000 / IDISP001: the linked CTS ownership transfers to the ContinueWith
@@ -296,24 +326,64 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
 
     private void ThreadEntry()
     {
-        _oleInitResult = NativeMethods.OleInitialize(IntPtr.Zero);
-        if (_oleInitResult < 0)
-        {
-            Debug.WriteLine($"OleInitialize failed with HRESULT: 0x{_oleInitResult:X8}");
-            _threadReady.TrySetResult(false);
-            DrainQueueAsCanceled();
-            return;
-        }
-
-        _threadReady.TrySetResult(true);
-
         try
         {
-            MessageLoopThread();
+            _oleInitResult = NativeMethods.OleInitialize(IntPtr.Zero);
+            if (_oleInitResult < 0)
+            {
+                Debug.WriteLine($"OleInitialize failed with HRESULT: 0x{_oleInitResult:X8}");
+                _threadReady.TrySetResult(false);
+                DrainQueueAsCanceled();
+                return;
+            }
+
+            _threadReady.TrySetResult(true);
+
+            try
+            {
+                MessageLoopThread();
+            }
+            finally
+            {
+                NativeMethods.OleUninitialize();
+            }
         }
         finally
         {
-            NativeMethods.OleUninitialize();
+            // Dispose the synchronization primitives on the STA thread itself, AFTER
+            // the message loop has returned. This guarantees no kernel wait (inside
+            // MsgWaitForMultipleObjects) can still be holding these handles when
+            // they are closed, eliminating the invalid-handle race that would occur
+            // if Dispose() closed them from another thread while the STA thread was
+            // still blocked on the wait.
+#pragma warning disable CA1031
+            try
+            {
+                _workAvailable.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Disposing _workAvailable failed: {ex}");
+            }
+
+            try
+            {
+                _shutdownEvent.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Disposing _shutdownEvent failed: {ex}");
+            }
+
+            try
+            {
+                _shutdownCts.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Disposing _shutdownCts failed: {ex}");
+            }
+#pragma warning restore CA1031
         }
     }
 
