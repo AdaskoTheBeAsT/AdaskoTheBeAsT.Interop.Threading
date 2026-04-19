@@ -47,8 +47,16 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
             ? SingleThreadedApartmentTaskSchedulerOptions.DefaultThreadName
             : effectiveOptions.ThreadName;
 
-        ValidateTimeout(effectiveOptions.DefaultWorkItemTimeout, nameof(options));
-        _defaultTimeout = effectiveOptions.DefaultWorkItemTimeout;
+        var defaultTimeout = effectiveOptions.DefaultWorkItemTimeout;
+        if (defaultTimeout != Timeout.InfiniteTimeSpan && defaultTimeout < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                defaultTimeout,
+                "DefaultWorkItemTimeout must be either Timeout.InfiniteTimeSpan or a non-negative TimeSpan.");
+        }
+
+        _defaultTimeout = defaultTimeout;
 
         _thread = new Thread(ThreadEntry)
         {
@@ -369,19 +377,5 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
         {
             item.Cancel();
         }
-    }
-
-    private static void ValidateTimeout(TimeSpan timeout, string optionsParameterName)
-    {
-        if (timeout == Timeout.InfiniteTimeSpan || timeout >= TimeSpan.Zero)
-        {
-            return;
-        }
-
-        throw new ArgumentOutOfRangeException(
-            optionsParameterName,
-            timeout,
-            $"{nameof(SingleThreadedApartmentTaskSchedulerOptions.DefaultWorkItemTimeout)} must be either "
-            + $"{nameof(Timeout.InfiniteTimeSpan)} or a non-negative {nameof(TimeSpan)}.");
     }
 }
