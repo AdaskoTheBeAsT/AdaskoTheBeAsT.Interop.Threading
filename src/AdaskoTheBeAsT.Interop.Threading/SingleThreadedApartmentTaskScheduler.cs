@@ -7,56 +7,59 @@ using System.Threading.Tasks;
 namespace AdaskoTheBeAsT.Interop.Threading;
 
 /// <summary>
-/// Queues delegates onto one reusable background STA thread with an OLE message loop.
-/// This scheduler is process-wide and serializes all queued work items onto the same STA thread.
+/// Queues delegates onto a dedicated background STA thread with an OLE message loop.
+/// Each instance owns its own STA thread and serializes all queued work items onto it.
+/// Dispose the instance to stop the thread deterministically.
 /// </summary>
-public static class SingleThreadedApartmentTaskScheduler
+public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartmentTaskScheduler
 {
-    private static readonly ConcurrentQueue<IStaWorkItem> _queue = new();
-    private static readonly AutoResetEvent _workAvailable = new(false);
-    private static readonly ManualResetEvent _shutdownEvent = new(false);
-    private static volatile bool _isShuttingDown;
+    private readonly ConcurrentQueue<IStaWorkItem> _queue = new();
+    private readonly AutoResetEvent _workAvailable = new(false);
+    private readonly ManualResetEvent _shutdownEvent = new(false);
+    private readonly CancellationTokenSource _shutdownCts = new();
+    private readonly Thread _thread;
+    private readonly TimeSpan _defaultTimeout;
+    private readonly TaskCompletionSource<bool> _threadReady =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    static SingleThreadedApartmentTaskScheduler()
+    private volatile bool _isShuttingDown;
+    private volatile bool _isDisposed;
+    private int _oleInitResult;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SingleThreadedApartmentTaskScheduler"/> class
+    /// using default options and starts a dedicated STA background thread that runs an OLE message loop.
+    /// </summary>
+    public SingleThreadedApartmentTaskScheduler()
+        : this(new SingleThreadedApartmentTaskSchedulerOptions())
     {
-        var thread = new Thread(() =>
-        {
-            var hr = NativeMethods.OleInitialize(IntPtr.Zero);
-            if (hr < 0)
-            {
-                Debug.WriteLine($"OleInitialize failed with HRESULT: 0x{hr:X8}");
-                return;
-            }
-
-            try
-            {
-                MessageLoopThread();
-            }
-            finally
-            {
-                NativeMethods.OleUninitialize();
-            }
-        })
-        {
-            IsBackground = true,
-            Name = "STA Task Scheduler Thread",
-        };
-
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-
-        AppDomain.CurrentDomain.ProcessExit += (_, _) => Shutdown();
     }
 
     /// <summary>
-    /// Queues a delegate onto the shared STA scheduler and provides a <see cref="StaYield"/> helper for cooperative message pumping.
+    /// Initializes a new instance of the <see cref="SingleThreadedApartmentTaskScheduler"/> class
+    /// with the supplied options and starts a dedicated STA background thread that runs an OLE message loop.
     /// </summary>
-    /// <typeparam name="T">The type returned by the delegate.</typeparam>
-    /// <param name="work">The delegate to execute on the shared STA thread.</param>
-    /// <param name="cancellationToken">A token that can cancel the queued operation before it starts.</param>
-    /// <returns>A task that completes with the delegate result, faults with the original exception, or is canceled.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="work"/> is <see langword="null"/>.</exception>
-    public static Task<T?> RunAsync<T>(Func<StaYield, T?> work, CancellationToken cancellationToken = default)
+    /// <param name="options">Options controlling scheduler behavior. When <see langword="null"/>, defaults are used.</param>
+    public SingleThreadedApartmentTaskScheduler(SingleThreadedApartmentTaskSchedulerOptions? options)
+    {
+        var effectiveOptions = options ?? new SingleThreadedApartmentTaskSchedulerOptions();
+        var threadName = string.IsNullOrWhiteSpace(effectiveOptions.ThreadName)
+            ? SingleThreadedApartmentTaskSchedulerOptions.DefaultThreadName
+            : effectiveOptions.ThreadName;
+        _defaultTimeout = effectiveOptions.DefaultWorkItemTimeout;
+
+        _thread = new Thread(ThreadEntry)
+        {
+            IsBackground = true,
+            Name = threadName,
+        };
+
+        _thread.SetApartmentState(ApartmentState.STA);
+        _thread.Start();
+    }
+
+    /// <inheritdoc />
+    public Task<T?> RunAsync<T>(Func<StaYield, T?> work, CancellationToken cancellationToken = default)
     {
         if (work is null)
         {
@@ -68,19 +71,14 @@ public static class SingleThreadedApartmentTaskScheduler
             return Task.FromCanceled<T?>(cancellationToken);
         }
 
+        // Intentional closure allocation: exposes StaYield to the caller's delegate.
 #pragma warning disable CC0031
         return RunAsync(() => work(new StaYield()), cancellationToken);
 #pragma warning restore CC0031
     }
 
-    /// <summary>
-    /// Queues an action onto the shared STA scheduler and provides a <see cref="StaYield"/> helper for cooperative message pumping.
-    /// </summary>
-    /// <param name="work">The action to execute on the shared STA thread.</param>
-    /// <param name="cancellationToken">A token that can cancel the queued operation before it starts.</param>
-    /// <returns>A task that completes when the action finishes, faults with the original exception, or is canceled.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="work"/> is <see langword="null"/>.</exception>
-    public static Task RunAsync(Action<StaYield> work, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public Task RunAsync(Action<StaYield> work, CancellationToken cancellationToken = default)
     {
         if (work is null)
         {
@@ -92,6 +90,7 @@ public static class SingleThreadedApartmentTaskScheduler
             return Task.FromCanceled(cancellationToken);
         }
 
+        // Intentional closure allocation: wraps Action<StaYield> into Func<object?>.
 #pragma warning disable CC0031
         return RunAsync<object?>(
             () =>
@@ -103,15 +102,14 @@ public static class SingleThreadedApartmentTaskScheduler
 #pragma warning restore CC0031
     }
 
-    /// <summary>
-    /// Queues a delegate onto the shared STA scheduler.
-    /// </summary>
-    /// <typeparam name="T">The type returned by the delegate.</typeparam>
-    /// <param name="func">The delegate to execute on the shared STA thread.</param>
-    /// <param name="cancellationToken">A token that can cancel the queued operation before it starts.</param>
-    /// <returns>A task that completes with the delegate result, faults with the original exception, or is canceled.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="func"/> is <see langword="null"/>.</exception>
-    public static Task<T?> RunAsync<T>(Func<T?> func, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public Task<T?> RunAsync<T>(Func<T?> func, CancellationToken cancellationToken)
+    {
+        return RunAsync(func, _defaultTimeout, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<T?> RunAsync<T>(Func<T?> func, TimeSpan timeout, CancellationToken cancellationToken)
     {
         if (func is null)
         {
@@ -123,21 +121,28 @@ public static class SingleThreadedApartmentTaskScheduler
             return Task.FromCanceled<T?>(cancellationToken);
         }
 
+        if (_isDisposed)
+        {
+            return Task.FromException<T?>(new ObjectDisposedException(nameof(SingleThreadedApartmentTaskScheduler)));
+        }
+
         if (_isShuttingDown)
         {
             return Task.FromException<T?>(new InvalidOperationException("The STA task scheduler is shutting down."));
         }
 
-        var item = new StaWorkItem<T>(func, cancellationToken);
-        _queue.Enqueue(item);
-        _workAvailable.Set();
-        return item.Task;
+        if (_oleInitResult < 0)
+        {
+            return Task.FromException<T?>(
+                new InvalidOperationException(
+                    $"The STA task scheduler thread failed to initialize OLE (HRESULT: 0x{_oleInitResult:X8})."));
+        }
+
+        return EnqueueAndOptionallyTimeoutAsync(func, timeout, cancellationToken);
     }
 
-    /// <summary>
-    /// Stops the scheduler from accepting new work and signals the background STA thread to shut down.
-    /// </summary>
-    public static void Shutdown()
+    /// <inheritdoc />
+    public void Shutdown()
     {
         if (_isShuttingDown)
         {
@@ -145,16 +150,127 @@ public static class SingleThreadedApartmentTaskScheduler
         }
 
         _isShuttingDown = true;
+
+        // Signal cooperative cancellation to any work currently running on the STA thread
+        // (the running item observes the shared shutdown token) and to any items queued
+        // but not yet dequeued.
+#pragma warning disable CA1031
+        try
+        {
+            _shutdownCts.Cancel();
+        }
+        catch (ObjectDisposedException ex)
+        {
+            // Disposed concurrently; safe to ignore.
+            Debug.WriteLine($"Shutdown CTS was disposed concurrently: {ex.Message}");
+        }
+#pragma warning restore CA1031
+
         _shutdownEvent.Set();
     }
 
-    private static void MessageLoopThread()
+    /// <summary>
+    /// Stops the scheduler, waits for the background STA thread to exit, and releases underlying synchronization resources.
+    /// </summary>
+    public void Dispose()
     {
-#pragma warning disable S3869
-#pragma warning disable CC0001
+        if (_isDisposed)
+        {
+            return;
+        }
+
+        _isDisposed = true;
+        Shutdown();
+
+#pragma warning disable CA1031
+        try
+        {
+            if (_thread.IsAlive && _thread != Thread.CurrentThread)
+            {
+                _thread.Join();
+            }
+        }
+        catch (Exception ex)
+        {
+            // best-effort join; never throw from Dispose
+            Debug.WriteLine($"STA scheduler thread join failed: {ex}");
+        }
+#pragma warning restore CA1031
+
+        _workAvailable.Dispose();
+        _shutdownEvent.Dispose();
+        _shutdownCts.Dispose();
+    }
+
+    // CA2000 / IDISP001: the linked CTS ownership transfers to the ContinueWith
+    // continuation below, which disposes it when the work item reaches a terminal
+    // state. VSTHRD110 / MA0134: the continuation result is intentionally not awaited
+    // because its sole purpose is resource cleanup and it never throws.
+#pragma warning disable CA2000, IDISP001, VSTHRD110, MA0134
+    private Task<T?> EnqueueAndOptionallyTimeoutAsync<T>(
+        Func<T?> func,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        // Link the caller token with the scheduler's shutdown token so that a
+        // pending work item is canceled if the scheduler is disposed before it runs,
+        // and a running work item observes cancellation cooperatively.
+        var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdownCts.Token);
+        var item = new StaWorkItem<T>(func, linkedCts.Token);
+        var itemTask = item.Task;
+
+        _queue.Enqueue(item);
+        _workAvailable.Set();
+
+        // Clean up the linked CTS once the item completes (in any terminal state).
+        itemTask.ContinueWith(
+            static (_, state) => ((CancellationTokenSource)state!).Dispose(),
+            linkedCts,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+        if (timeout == Timeout.InfiniteTimeSpan)
+        {
+            return itemTask;
+        }
+
+        return itemTask.TimeoutAfterAsync(timeout, cancellationToken);
+    }
+#pragma warning restore CA2000, IDISP001, VSTHRD110, MA0134
+
+    private void ThreadEntry()
+    {
+        _oleInitResult = NativeMethods.OleInitialize(IntPtr.Zero);
+        if (_oleInitResult < 0)
+        {
+            Debug.WriteLine($"OleInitialize failed with HRESULT: 0x{_oleInitResult:X8}");
+            _threadReady.TrySetResult(false);
+            DrainQueueAsCanceled();
+            return;
+        }
+
+        _threadReady.TrySetResult(true);
+
+        try
+        {
+            MessageLoopThread();
+        }
+        finally
+        {
+            NativeMethods.OleUninitialize();
+        }
+    }
+
+    private void MessageLoopThread()
+    {
+        // Suppressed: SafeWaitHandle.DangerousGetHandle is required here because we
+        // pass the handles to a Win32 API (MsgWaitForMultipleObjects) that accepts
+        // native HANDLEs. The handles are kept alive by the AutoResetEvent/ManualResetEvent
+        // fields for the lifetime of the scheduler, so there is no reference-count race.
+#pragma warning disable S3869, CC0001
         IntPtr[] handles = [_workAvailable.SafeWaitHandle.DangerousGetHandle(), _shutdownEvent.SafeWaitHandle.DangerousGetHandle()];
-#pragma warning restore CC0001
-#pragma warning restore S3869
+#pragma warning restore CC0001, S3869
 
         while (!_isShuttingDown)
         {
@@ -183,18 +299,28 @@ public static class SingleThreadedApartmentTaskScheduler
             }
         }
 
-        while (_queue.TryDequeue(out var item))
-        {
-            item.Cancel();
-        }
+        DrainQueueAsCanceled();
     }
 
-    private static void ProcessQueuedItems()
+    private void ProcessQueuedItems()
     {
         while (_queue.TryDequeue(out var item))
         {
             item.Execute();
             NativeMethods.PumpPendingMessages();
+
+            if (_isShuttingDown)
+            {
+                return;
+            }
+        }
+    }
+
+    private void DrainQueueAsCanceled()
+    {
+        while (_queue.TryDequeue(out var item))
+        {
+            item.Cancel();
         }
     }
 }

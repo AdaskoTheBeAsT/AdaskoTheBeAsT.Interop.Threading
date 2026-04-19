@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 namespace AdaskoTheBeAsT.Interop.Threading;
 
 #pragma warning disable S101
-#if NETSTANDARD2_0
+#if NETSTANDARD2_0 || NETFRAMEWORK
 internal static class NativeMethods
 {
     public const uint INFINITE = unchecked((uint)-1);

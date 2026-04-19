@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 
 namespace AdaskoTheBeAsT.Interop.Threading;
@@ -10,7 +11,8 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 /// <param name="intervalMs">The minimum interval, in milliseconds, between automatic message-pump checks in <see cref="Occasionally"/>.</param>
 public sealed class StaYield(int intervalMs = 15)
 {
-    private int _last = Environment.TickCount;
+    private readonly long _intervalTicks = Math.Max(1, intervalMs) * (Stopwatch.Frequency / 1000L);
+    private long _lastPumpTicks = Stopwatch.GetTimestamp();
 
     /// <summary>
     /// Pumps pending Windows messages when enough time has elapsed since the previous pump.
@@ -18,11 +20,11 @@ public sealed class StaYield(int intervalMs = 15)
     /// </summary>
     public void Occasionally()
     {
-        var now = Environment.TickCount;
-        if (unchecked(now - _last) >= intervalMs)
+        var now = Stopwatch.GetTimestamp();
+        if (now - _lastPumpTicks >= _intervalTicks)
         {
             NativeMethods.PumpPendingMessages();
-            _last = now;
+            _lastPumpTicks = now;
         }
     }
 
@@ -52,12 +54,25 @@ public sealed class StaYield(int intervalMs = 15)
     /// <param name="ms">The number of milliseconds to wait.</param>
     public void Sleep(int ms)
     {
-        var start = Environment.TickCount;
-        while (unchecked(Environment.TickCount - start) < ms)
+        if (ms <= 0)
         {
+            return;
+        }
+
+        var targetTicks = Stopwatch.GetTimestamp() + (ms * (Stopwatch.Frequency / 1000L));
+        while (true)
+        {
+            var now = Stopwatch.GetTimestamp();
+            var remainingTicks = targetTicks - now;
+            if (remainingTicks <= 0)
+            {
+                return;
+            }
+
             Occasionally();
-            var remaining = ms - unchecked(Environment.TickCount - start);
-            Thread.Sleep(Math.Min(10, Math.Max(1, remaining)));
+
+            var remainingMs = (int)(remainingTicks * 1000L / Stopwatch.Frequency);
+            Thread.Sleep(Math.Min(10, Math.Max(1, remainingMs)));
         }
     }
 }
