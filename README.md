@@ -74,6 +74,30 @@ Symbols ship as `.snupkg` with Source Link and embedded untracked sources — st
 
 ---
 
+## 📚 Table of contents
+
+- [👋 Hello, threading friend](#-hello-threading-friend)
+- [✨ Why you'll love this](#-why-youll-love-this)
+- [📦 Install](#-install)
+- [🗺️ Target framework matrix](#️-target-framework-matrix)
+- [💡 The core idea](#-the-core-idea)
+- [🎯 Key features](#-key-features)
+  - [MutexHelper — cross-process synchronization](#1-mutexhelper---cross-process-synchronization)
+  - [SingleThreadedApartmentTask — STA execution](#2-singlethreadedapartmenttask---sta-execution)
+  - [SingleThreadedApartmentTaskScheduler — reusable STA thread](#3-singlethreadedapartmenttaskscheduler---reusable-sta-thread)
+  - [TaskExtension — task timeout management](#4-taskextension---task-timeout-management)
+- [🔧 Advanced scenarios](#-advanced-scenarios)
+- [🎓 Real-world examples](#-real-world-examples)
+- [🏗️ Technical details](#️-technical-details)
+- [🧭 Architecture decision records](#-architecture-decision-records)
+- [⚠️ Known considerations](#️-known-considerations)
+- [🔄 Migration guide (2.x → 3.0)](#-migration-guide)
+- [📋 Changelog](#-changelog)
+- [📝 License](#-license)
+- [🤝 Contributing](#-contributing)
+
+---
+
 ## 🗺️ Target framework matrix
 
 | TFM | Status | Notes |
@@ -89,6 +113,36 @@ Symbols ship as `.snupkg` with Source Link and embedded untracked sources — st
 | `net462` | ✅ | Minimum supported TFM. |
 
 Every cell is built with `TreatWarningsAsErrors=true`, `ContinuousIntegrationBuild=true`, `Deterministic=true`, and exercised in CI.
+
+---
+
+## 💡 The core idea
+
+Most Windows interop pain comes from four recurring themes. This library gives each one a tiny, focused primitive:
+
+```
+             ┌──────────────────────────────────────┐
+             │  Caller (your app / test / service)  │
+             └──────────────────────────────────────┘
+                 │          │          │         │
+                 │ Mutex    │ STA      │ Schedule │ Timeout
+                 ▼          ▼          ▼         ▼
+         ┌───────────┐ ┌─────────┐ ┌───────┐ ┌──────────────┐
+         │MutexHelper│ │SingleThr│ │Scheduler│ │TaskExtension│
+         │  🔒       │ │Apartment│ │  🧵     │ │    ⏱️       │
+         │           │ │Task 🏢  │ │         │ │              │
+         │Global\... │ │Ad-hoc   │ │Persistent│ │TimeoutAfter │
+         │abandoned- │ │STA run  │ │STA queue │ │Async, CT-   │
+         │mutex OK   │ │per call │ │ + pump  │ │aware        │
+         └───────────┘ └─────────┘ └───────┘ └──────────────┘
+                 │          │          │         │
+                 ▼          ▼          ▼         ▼
+             ┌──────────────────────────────────────┐
+             │  Win32 / OLE / Message Pump (Windows)│
+             └──────────────────────────────────────┘
+```
+
+Use one or all of them. They're independent, each < 200 LoC, each with a tight test matrix.
 
 ---
 
