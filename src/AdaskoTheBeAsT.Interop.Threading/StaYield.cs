@@ -11,7 +11,7 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 /// <param name="intervalMs">The minimum interval, in milliseconds, between automatic message-pump checks in <see cref="Occasionally"/>.</param>
 public sealed class StaYield(int intervalMs = 15)
 {
-    private readonly long _intervalTicks = Math.Max(1, intervalMs) * (Stopwatch.Frequency / 1000L);
+    private readonly long _intervalTicks = MillisecondsToTicks(Math.Max(1, intervalMs));
     private long _lastPumpTicks = Stopwatch.GetTimestamp();
 
     /// <summary>
@@ -59,7 +59,7 @@ public sealed class StaYield(int intervalMs = 15)
             return;
         }
 
-        var targetTicks = Stopwatch.GetTimestamp() + (ms * (Stopwatch.Frequency / 1000L));
+        var targetTicks = Stopwatch.GetTimestamp() + MillisecondsToTicks(ms);
         while (true)
         {
             var now = Stopwatch.GetTimestamp();
@@ -74,5 +74,20 @@ public sealed class StaYield(int intervalMs = 15)
             var remainingMs = (int)(remainingTicks * 1000L / Stopwatch.Frequency);
             Thread.Sleep(Math.Min(10, Math.Max(1, remainingMs)));
         }
+    }
+
+    // Converts milliseconds to Stopwatch ticks with full precision and clamps the
+    // result to at least one tick so callers never get a "zero-interval" threshold
+    // (which would fire on every call) on platforms where Stopwatch.Frequency is
+    // very low.
+    private static long MillisecondsToTicks(int ms)
+    {
+        if (ms <= 0)
+        {
+            return 1L;
+        }
+
+        var ticks = (Stopwatch.Frequency * ms) / 1000L;
+        return ticks < 1L ? 1L : ticks;
     }
 }

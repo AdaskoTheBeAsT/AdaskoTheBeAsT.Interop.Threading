@@ -56,6 +56,15 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
 
         _thread.SetApartmentState(ApartmentState.STA);
         _thread.Start();
+
+        // Block briefly until the STA thread has completed OLE initialization (or
+        // definitively failed). This guarantees _oleInitResult is observable to the
+        // first caller of RunAsync so an initialization failure surfaces as an
+        // InvalidOperationException instead of being hidden behind cancellations
+        // from DrainQueueAsCanceled().
+#pragma warning disable VSTHRD002
+        _threadReady.Task.GetAwaiter().GetResult();
+#pragma warning restore VSTHRD002
     }
 
     /// <inheritdoc />
@@ -164,9 +173,20 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
             // Disposed concurrently; safe to ignore.
             Debug.WriteLine($"Shutdown CTS was disposed concurrently: {ex.Message}");
         }
-#pragma warning restore CA1031
 
-        _shutdownEvent.Set();
+        // Shutdown must be idempotent and safe to call after Dispose() (or
+        // concurrently with it). Setting a disposed ManualResetEvent throws
+        // ObjectDisposedException; swallow it so lifecycle calls are
+        // side-effect-free once disposal has already torn the handles down.
+        try
+        {
+            _shutdownEvent.Set();
+        }
+        catch (ObjectDisposedException ex)
+        {
+            Debug.WriteLine($"Shutdown event was disposed concurrently: {ex.Message}");
+        }
+#pragma warning restore CA1031
     }
 
     /// <summary>

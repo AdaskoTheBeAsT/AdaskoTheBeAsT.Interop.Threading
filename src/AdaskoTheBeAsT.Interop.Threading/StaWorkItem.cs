@@ -91,7 +91,10 @@ internal sealed class StaWorkItem<T> : IStaWorkItem
     {
         if (Interlocked.CompareExchange(ref _state, CanceledState, PendingState) == PendingState)
         {
-            _taskCompletionSource.TrySetCanceled();
+            // Preserve the associated cancellation token so callers observing
+            // the resulting TaskCanceledException see the same token here and
+            // from OnCanceled()/Execute(), giving consistent cancellation diagnostics.
+            _taskCompletionSource.TrySetCanceled(_cancellationToken);
         }
 
         _cancellationRegistration.Dispose();

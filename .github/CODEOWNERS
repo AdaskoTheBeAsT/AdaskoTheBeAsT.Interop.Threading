@@ -6,8 +6,8 @@
 # Owners" is enabled on the protected branch).
 #
 # Syntax reference: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-security-policies/about-code-owners
-# GitHub accepts both @username and verified-email forms; both are listed
-# so review requests reach the owner regardless of the account preference.
+# GitHub CODEOWNERS entries support GitHub usernames and teams.
+# This repository uses the owner's GitHub username for review requests.
 
 # Default owner for everything in the repo
-*                           @AdaskoTheBeAsT adaskothebeast@gmail.com
+*                           @AdaskoTheBeAsT

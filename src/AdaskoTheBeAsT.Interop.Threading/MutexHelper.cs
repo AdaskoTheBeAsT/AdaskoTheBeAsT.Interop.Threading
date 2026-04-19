@@ -20,8 +20,9 @@ public static class MutexHelper
     // On some runtimes (notably .NET 10+ restoring cross-platform semantics for
     // Mutex) the extension method System.Threading.Mutex.SetAccessControl is no
     // longer present as an instance member. We look it up reflectively once and
-    // invoke it when available; otherwise we silently skip, matching the historical
-    // PlatformNotSupportedException swallow.
+    // invoke it when available; otherwise we skip applying ACLs and emit trace
+    // diagnostics when unsupported, while preserving the historical
+    // PlatformNotSupportedException-swallowing behavior.
     private static readonly MethodInfo? _setAccessControl = ResolveSetAccessControl();
 
     /// <summary>

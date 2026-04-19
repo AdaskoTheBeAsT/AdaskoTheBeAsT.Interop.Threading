@@ -1,28 +1,96 @@
-# AdaskoTheBeAsT.Interop.Threading
+# 🧵 AdaskoTheBeAsT.Interop.Threading
 
-[![NuGet](https://img.shields.io/nuget/v/AdaskoTheBeAsT.Interop.Threading.svg)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Threading/)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+> 🪟 A friendly, production-ready Windows threading toolbox for cross-process mutexes, STA/COM work, and task timeouts — with a message pump that *actually* pumps. 💨
 
-A high-performance, production-ready C# library for advanced threading scenarios on Windows. Provides robust utilities for cross-process mutex synchronization, STA (Single-Threaded Apartment) task execution, and task timeout management with proper message pump handling.
+[![NuGet](https://img.shields.io/nuget/v/AdaskoTheBeAsT.Interop.Threading.svg?label=AdaskoTheBeAsT.Interop.Threading&logo=nuget)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Threading/)
+[![NuGet downloads](https://img.shields.io/nuget/dt/AdaskoTheBeAsT.Interop.Threading.svg?logo=nuget&label=downloads)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Threading/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+![TFMs](https://img.shields.io/badge/TFMs-net10.0%20%7C%20net9.0%20%7C%20net8.0%20%7C%20net4.6.2%E2%80%93net4.8.1-512BD4?logo=dotnet)
+![Platform](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)
+![Warnings](https://img.shields.io/badge/warnings--as--errors-on-green)
+![Deterministic](https://img.shields.io/badge/deterministic%20build-on-blue)
+[![CI](https://img.shields.io/github/actions/workflow/status/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading/ci.yml?branch=main&logo=github&label=CI)](https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading/actions)
 
-## 🚀 Why Use This Library?
+### 🔬 Code quality — SonarCloud
 
-- **Cross-Process Synchronization**: Global mutexes with proper security settings and abandoned mutex recovery
-- **STA Thread Support**: Execute code in STA context with full COM interop support and message pump handling
-- **Production-Ready**: Handles edge cases like abandoned mutexes, TickCount wraparound, and cancellation token propagation
-- **Multi-Framework Support**: Targets .NET Standard 2.0, .NET 8.0, .NET 9.0, and .NET 10.0 with optimized P/Invoke for each
-- **Zero External Dependencies**: Only uses System.Threading.AccessControl for enhanced security
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=coverage)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=coverage)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=sqale_rating)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=sqale_rating)
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=reliability_rating)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=reliability_rating)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=security_rating)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=security_rating)
+[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=bugs)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=bugs)
+[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=vulnerabilities)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=vulnerabilities)
+[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=code_smells)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=code_smells)
+[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=duplicated_lines_density)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=duplicated_lines_density)
+[![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=sqale_index)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=sqale_index)
+[![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=ncloc)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=ncloc)
 
-## 📦 Installation
+---
+
+## 👋 Hello, threading friend
+
+Native-on-Windows code is fun, right up until it *isn't*. You know the signs:
+
+- 🏢 a COM component that quietly insists on **STA** + message pumping
+- 🔒 a resource that must be **serialized across processes** (not just threads)
+- ⏳ a call that might never come back, so you need a real **timeout** — one that respects cancellation tokens
+- 🧟 a mutex left behind by a process that crashed, waiting to ambush the next caller
+- 🧪 a scheduler that must behave in unit tests: **disposable, injectable, mockable**
+
+`AdaskoTheBeAsT.Interop.Threading` is the reusable boilerplate you keep rewriting in every project: named cross-process mutexes with sensible ACLs, a dedicated STA thread with a real OLE message loop, and task timeouts that distinguish *"I gave up"* from *"the caller canceled me"*. 📦
+
+And now it's a library. ✨
+
+---
+
+## ✨ Why you'll love this
+
+- 🧵 **Instance-based STA scheduler.** `SingleThreadedApartmentTaskScheduler` owns its own STA thread, implements `ISingleThreadedApartmentTaskScheduler` + `IDisposable`, and shuts down **deterministically**. No more static global state.
+- 🧩 **DI-friendly options.** `SingleThreadedApartmentTaskSchedulerOptions` binds to `Microsoft.Extensions.Options` out of the box.
+- ⏱️ **Per-item timeouts.** `RunAsync(func, timeout, ct)` overload plus `DefaultWorkItemTimeout` on options.
+- 🕊️ **Cooperative cancellation that actually composes.** Caller token ⨯ scheduler-shutdown token, observed pre- and post-execution by `StaWorkItem`.
+- 🧮 **Full-precision timing.** `StaYield` uses `Stopwatch.GetTimestamp()` with full-precision ms → tick math — no `Environment.TickCount` wraparound surprises.
+- 🔒 **Cross-process mutexes done right.** Global `\Global\` prefix, cached `MutexSecurity`, reflection-resolved `SetAccessControl` (works on net4x **and** net8+), abandoned-mutex recovery.
+- 🪟 **9 TFMs, all green.** `net10.0-windows`, `net9.0-windows`, `net8.0-windows`, `net481`, `net48`, `net472`, `net471`, `net47`, `net462` — the full matrix on every build.
+- 🔎 **Source Link + `snupkg`.** Step into the library from your debugger without guessing.
+- 🛡️ **Warnings-as-errors + deterministic builds.** Because future-you deserves reproducibility.
+- 📐 **Tiny surface.** Four public types: `MutexHelper`, `SingleThreadedApartmentTask`, `SingleThreadedApartmentTaskScheduler`, `TaskExtension`.
+
+---
+
+## 📦 Install
 
 ```bash
 dotnet add package AdaskoTheBeAsT.Interop.Threading
 ```
 
-Or via NuGet Package Manager:
+Or via the NuGet Package Manager console:
+
 ```powershell
 Install-Package AdaskoTheBeAsT.Interop.Threading
 ```
+
+Symbols ship as `.snupkg` with Source Link and embedded untracked sources — step in, look around, it's fine.
+
+---
+
+## 🗺️ Target framework matrix
+
+| TFM | Status | Notes |
+| --- | :-: | --- |
+| `net10.0-windows` | ✅ | Primary target; `LibraryImport` source-generated P/Invoke. |
+| `net9.0-windows` | ✅ | Primary target; `LibraryImport`. |
+| `net8.0-windows` | ✅ | Primary target; `LibraryImport`. |
+| `net481` | ✅ | Windows desktop; classic `DllImport`. |
+| `net48` | ✅ | Same as above. |
+| `net472` | ✅ | Same as above. |
+| `net471` | ✅ | Same as above. |
+| `net47` | ✅ | Same as above. |
+| `net462` | ✅ | Minimum supported TFM. |
+
+Every cell is built with `TreatWarningsAsErrors=true`, `ContinuousIntegrationBuild=true`, `Deterministic=true`, and exercised in CI.
+
+---
 
 ## 🎯 Key Features
 
@@ -709,9 +777,9 @@ public async Task RunPeriodicTaskAsync(
 
 ## 🏗️ Technical Details
 
-- **Frameworks**: .NET Standard 2.0, .NET 8.0-windows, .NET 9.0-windows, .NET 10.0-windows
+- **Frameworks**: .NET 10.0-windows, .NET 9.0-windows, .NET 8.0-windows, .NET Framework 4.8.1, 4.8, 4.7.2, 4.7.1, 4.7, 4.6.2
 - **Platform**: Windows only (uses Win32 APIs for message pumps and COM)
-- **P/Invoke**: Uses modern `LibraryImport` source generators on .NET 8+ for better performance
+- **P/Invoke**: Uses modern `LibraryImport` source generators on .NET 8+ and `DllImport` on .NET Framework targets
 - **Thread Safety**: All APIs are thread-safe
 - **Async/Await**: Full async/await support with proper ConfigureAwait usage
 
