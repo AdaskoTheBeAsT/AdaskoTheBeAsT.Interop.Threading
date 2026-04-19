@@ -361,6 +361,6 @@ coverage-local.xml
 # Phase 0 build log snapshots - summary.md is committed, raw logs are not
 baseline/build.log
 
-.sarif/
+.sarif/*
 !.sarif/.gitkeep
 **/[Tt]est[Rr]esult*/
