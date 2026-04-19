@@ -23,10 +23,10 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
     // while the STA thread is still blocked on the wait, producing an
     // invalid-handle race. The lifetime owner is the STA thread, not Dispose().
     [SuppressMessage("Microsoft.Usage", "CA2213:Disposable fields should be disposed", Justification = "Disposed on STA thread in ThreadEntry after message loop exits; see ThreadEntry.")]
-    private readonly AutoResetEvent _workAvailable = new(false);
+    private readonly AutoResetEvent _workAvailable = new(initialState: false);
 
     [SuppressMessage("Microsoft.Usage", "CA2213:Disposable fields should be disposed", Justification = "Disposed on STA thread in ThreadEntry after message loop exits; see ThreadEntry.")]
-    private readonly ManualResetEvent _shutdownEvent = new(false);
+    private readonly ManualResetEvent _shutdownEvent = new(initialState: false);
 
     [SuppressMessage("Microsoft.Usage", "CA2213:Disposable fields should be disposed", Justification = "Disposed on STA thread in ThreadEntry after message loop exits; see ThreadEntry.")]
     private readonly CancellationTokenSource _shutdownCts = new();
@@ -234,7 +234,7 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
     /// from inside a work-item delegate that calls <see cref="Dispose"/>), the join
     /// step is skipped to avoid a self-deadlock. The message loop is already
     /// unwinding on that same stack frame, and the final handle disposal still runs
-    /// in the <c>finally</c> block of <c>ThreadEntry</c> once control returns there.
+    /// in the <see langword="finally"/> block of <see cref="ThreadEntry"/> once control returns there.
     /// </remarks>
     public void Dispose()
     {
@@ -272,23 +272,39 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
 #pragma warning restore CA1031
     }
 
-    // CA2000 / IDISP001: the linked CTS ownership transfers to the ContinueWith
-    // continuation below, which disposes it when the work item reaches a terminal
-    // state. VSTHRD110 / MA0134: the continuation result is intentionally not awaited
-    // because its sole purpose is resource cleanup and it never throws.
-#pragma warning disable CA2000, IDISP001, VSTHRD110, MA0134
     private Task<T?> EnqueueAndOptionallyTimeoutAsync<T>(
         Func<T?> func,
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
         // A Dispose() racing with RunAsync after the _disposedState check can tear
-        // down _shutdownCts or _workAvailable while we're mid-enqueue. Catch that
-        // ObjectDisposedException and surface it through the returned task so the
-        // method honors its contract that RunAsync NEVER throws at call-site on
-        // shutdown races.
-        CancellationTokenSource? linkedCts = null;
+        // down _shutdownCts or _workAvailable while we're mid-enqueue. EnqueueCore
+        // performs the work and surfaces an ODE synchronously; we catch it here and
+        // project it into a faulted Task so RunAsync honors its contract of never
+        // throwing at call-site on shutdown races.
+        Task<T?> itemTask;
+        try
+        {
+            itemTask = EnqueueCoreAsync<T>(func, cancellationToken);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            return Task.FromException<T?>(ex);
+        }
 
+        return timeout == Timeout.InfiniteTimeSpan
+            ? itemTask
+            : itemTask.TimeoutAfterAsync(timeout, cancellationToken);
+    }
+
+    // CA2000 / IDISP001: the linked CTS ownership transfers to the ContinueWith
+    // continuation, which disposes it when the work item reaches a terminal state.
+    // VSTHRD110 / MA0134: the continuation result is intentionally not awaited
+    // because its sole purpose is resource cleanup and it never throws.
+#pragma warning disable CA2000, IDISP001, VSTHRD110, MA0134
+    private Task<T?> EnqueueCoreAsync<T>(Func<T?> func, CancellationToken cancellationToken)
+    {
+        CancellationTokenSource? linkedCts = null;
         try
         {
             // Link the caller token with the scheduler's shutdown token so that a
@@ -302,24 +318,19 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
             _workAvailable.Set();
 
             // Clean up the linked CTS once the item completes (in any terminal state).
-            itemTask.ContinueWith(
+            _ = itemTask.ContinueWith(
                 static (_, state) => ((CancellationTokenSource)state!).Dispose(),
                 linkedCts,
                 CancellationToken.None,
                 TaskContinuationOptions.ExecuteSynchronously,
                 TaskScheduler.Default);
 
-            if (timeout == Timeout.InfiniteTimeSpan)
-            {
-                return itemTask;
-            }
-
-            return itemTask.TimeoutAfterAsync(timeout, cancellationToken);
+            return itemTask;
         }
-        catch (ObjectDisposedException ex)
+        catch (ObjectDisposedException)
         {
             linkedCts?.Dispose();
-            return Task.FromException<T?>(ex);
+            throw;
         }
     }
 #pragma warning restore CA2000, IDISP001, VSTHRD110, MA0134

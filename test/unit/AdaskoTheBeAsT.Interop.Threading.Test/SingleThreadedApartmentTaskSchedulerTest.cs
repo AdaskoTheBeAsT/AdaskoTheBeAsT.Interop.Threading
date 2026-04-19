@@ -96,7 +96,7 @@ public class SingleThreadedApartmentTaskSchedulerTest
     }
 
     [Fact]
-    public async Task RunAsync_PropagatesOriginalException()
+    public async Task RunAsync_PropagatesOriginalExceptionAsync()
     {
         SkipIfNotWindows();
 
@@ -132,7 +132,7 @@ public class SingleThreadedApartmentTaskSchedulerTest
 
 #pragma warning disable IDISP016, IDISP017
     [Fact]
-    public async Task RunAsync_AfterDispose_Throws()
+    public async Task RunAsync_AfterDispose_ThrowsAsync()
     {
         SkipIfNotWindows();
 
@@ -153,7 +153,7 @@ public class SingleThreadedApartmentTaskSchedulerTest
     }
 
     [Fact]
-    public async Task Dispose_IsIdempotent()
+    public async Task Dispose_IsIdempotentAsync()
     {
         SkipIfNotWindows();
 
@@ -174,7 +174,7 @@ public class SingleThreadedApartmentTaskSchedulerTest
 #pragma warning restore IDISP016, IDISP017
 
     [Fact]
-    public async Task MultipleSchedulers_AreIndependent()
+    public async Task MultipleSchedulers_AreIndependentAsync()
     {
         SkipIfNotWindows();
 
@@ -211,7 +211,7 @@ public class SingleThreadedApartmentTaskSchedulerTest
     }
 
     [Fact]
-    public async Task RunAsync_WithTimeout_ReturnsResultWhenInTime()
+    public async Task RunAsync_WithTimeout_ReturnsResultWhenInTimeAsync()
     {
         SkipIfNotWindows();
 
@@ -226,7 +226,7 @@ public class SingleThreadedApartmentTaskSchedulerTest
     }
 
     [Fact]
-    public async Task RunAsync_DefaultTimeoutFromOptions_IsApplied()
+    public async Task RunAsync_DefaultTimeoutFromOptions_IsAppliedAsync()
     {
         SkipIfNotWindows();
 
@@ -250,7 +250,7 @@ public class SingleThreadedApartmentTaskSchedulerTest
     }
 
     [Fact]
-    public async Task OperationCanceledException_FromWork_SurfacesAsCanceledTask()
+    public async Task OperationCanceledException_FromWork_SurfacesAsCanceledTaskAsync()
     {
         SkipIfNotWindows();
 
@@ -277,7 +277,7 @@ public class SingleThreadedApartmentTaskSchedulerTest
     }
 
     [Fact]
-    public async Task Cancellation_DuringExecution_SurfacesAsCanceledTask()
+    public async Task Cancellation_DuringExecution_SurfacesAsCanceledTaskAsync()
     {
         SkipIfNotWindows();
 
@@ -306,12 +306,13 @@ public class SingleThreadedApartmentTaskSchedulerTest
             cts.Token);
 #pragma warning restore VSTHRD003
 
-#pragma warning disable xUnit1051
-        started.Wait(TimeSpan.FromSeconds(2)).Should().BeTrue();
-#pragma warning restore xUnit1051
 #if NET8_0_OR_GREATER
+        started.Wait(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken).Should().BeTrue();
         await cts.CancelAsync();
 #else
+#pragma warning disable xUnit1051, MA0040
+        started.Wait(TimeSpan.FromSeconds(2)).Should().BeTrue();
+#pragma warning restore xUnit1051, MA0040
         cts.Cancel();
 #endif
 
