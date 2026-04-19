@@ -4,10 +4,10 @@
     <IsTestProject>true</IsTestProject>
     <NoWarn>$(NoWarn);CC0022;CC0057;CC0091;MA0004</NoWarn>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0' OR '$(TargetFramework)' == 'net9.0' OR '$(TargetFramework)' == 'net8.0'">
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-windows' OR '$(TargetFramework)' == 'net9.0-windows' OR '$(TargetFramework)' == 'net8.0-windows'">
     <OutputType>exe</OutputType>
   </PropertyGroup>
-  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0' OR '$(TargetFramework)' == 'net9.0' OR '$(TargetFramework)' == 'net8.0'">
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows' OR '$(TargetFramework)' == 'net9.0-windows' OR '$(TargetFramework)' == 'net8.0-windows'">
     <PackageReference Include="AutoFixture.Xunit3" Version="4.19.0" />
     <PackageReference Include="xunit.v3" Version="3.2.2" />
   </ItemGroup>
