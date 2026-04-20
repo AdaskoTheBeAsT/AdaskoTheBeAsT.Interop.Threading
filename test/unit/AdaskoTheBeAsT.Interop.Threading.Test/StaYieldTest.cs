@@ -1,9 +1,15 @@
+#if NET8_0_OR_GREATER
+using System.Runtime.Versioning;
+#endif
 using System.Threading.Tasks;
 using AwesomeAssertions;
 using Xunit;
 
 namespace AdaskoTheBeAsT.Interop.Threading.Test;
 
+#if NET8_0_OR_GREATER
+[SupportedOSPlatform("windows")]
+#endif
 public class StaYieldTest
 {
     [Fact]

@@ -1,6 +1,9 @@
 using System;
 using System.Diagnostics;
 using System.Reflection;
+#if NET8_0_OR_GREATER
+using System.Runtime.Versioning;
+#endif
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Threading;
@@ -11,6 +14,9 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 /// Executes delegates while holding a named operating-system mutex.
 /// This is useful when work must be serialized across threads or processes.
 /// </summary>
+#if NET8_0_OR_GREATER
+[SupportedOSPlatform("windows")]
+#endif
 public static class MutexHelper
 {
     // Computed once per process. The ACL (Everyone: FullControl) is invariant, so the
@@ -71,10 +77,14 @@ public static class MutexHelper
     public static T RunInMutex<T>(string name, TimeSpan timeout, bool isGlobal, Func<T> func)
 #pragma warning restore MA0051
     {
+#if NET6_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(func);
+#else
         if (func == null)
         {
             throw new ArgumentNullException(nameof(func));
         }
+#endif
 
         var mutexName = isGlobal ? $"Global\\{name}" : name;
 

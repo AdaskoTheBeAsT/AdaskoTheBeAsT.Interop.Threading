@@ -1,4 +1,7 @@
 using System;
+#if NET8_0_OR_GREATER
+using System.Runtime.Versioning;
+#endif
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -8,6 +11,9 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 /// Runs delegates on a dedicated background STA thread.
 /// Each call creates a new thread, executes the supplied delegate there, and pumps any remaining messages before the thread exits.
 /// </summary>
+#if NET8_0_OR_GREATER
+[SupportedOSPlatform("windows")]
+#endif
 public static class SingleThreadedApartmentTask
 {
     /// <summary>
@@ -22,10 +28,14 @@ public static class SingleThreadedApartmentTask
         Func<StaYield, T> func,
         CancellationToken cancellationToken)
     {
+#if NET6_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(func);
+#else
         if (func == null)
         {
             throw new ArgumentNullException(nameof(func));
         }
+#endif
 
         return RunAsync(() => func(new StaYield()), cancellationToken);
     }
@@ -45,10 +55,14 @@ public static class SingleThreadedApartmentTask
         Func<T> func,
         CancellationToken cancellationToken)
     {
+#if NET6_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(func);
+#else
         if (func == null)
         {
             throw new ArgumentNullException(nameof(func));
         }
+#endif
 
         if (cancellationToken.IsCancellationRequested)
         {

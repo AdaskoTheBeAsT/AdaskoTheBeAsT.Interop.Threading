@@ -1,5 +1,8 @@
 using System;
 using System.Diagnostics;
+#if NET8_0_OR_GREATER
+using System.Runtime.Versioning;
+#endif
 using System.Threading;
 
 namespace AdaskoTheBeAsT.Interop.Threading;
@@ -9,6 +12,9 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 /// Use these helpers to keep the COM or Windows message pump responsive while work is in progress.
 /// </summary>
 /// <param name="intervalMs">The minimum interval, in milliseconds, between automatic message-pump checks in <see cref="Occasionally"/>.</param>
+#if NET8_0_OR_GREATER
+[SupportedOSPlatform("windows")]
+#endif
 public sealed class StaYield(int intervalMs = 15)
 {
     private readonly long _intervalTicks = MillisecondsToTicks(Math.Max(1, intervalMs));
@@ -36,10 +42,14 @@ public sealed class StaYield(int intervalMs = 15)
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="condition"/> is <see langword="null"/>.</exception>
     public void SpinUntil(Func<bool> condition, int checkEveryMs = 10)
     {
+#if NET6_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(condition);
+#else
         if (condition == null)
         {
             throw new ArgumentNullException(nameof(condition));
         }
+#endif
 
         while (!condition())
         {

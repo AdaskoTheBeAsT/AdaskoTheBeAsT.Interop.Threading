@@ -1,4 +1,7 @@
 using System;
+#if NET8_0_OR_GREATER
+using System.Runtime.Versioning;
+#endif
 using System.Threading;
 using System.Threading.Tasks;
 using AwesomeAssertions;
@@ -6,6 +9,9 @@ using Xunit;
 
 namespace AdaskoTheBeAsT.Interop.Threading.Test;
 
+#if NET8_0_OR_GREATER
+[SupportedOSPlatform("windows")]
+#endif
 public class SingleThreadedApartmentTaskCoverageTest
 {
     [Fact]
@@ -91,24 +97,38 @@ public class SingleThreadedApartmentTaskCoverageTest
     }
 
     [Fact]
-    public Task RunWithTimeoutAsync_DelegateExceedsBudget_ThrowsTimeoutExceptionAsync()
+    public async Task RunWithTimeoutAsync_DelegateExceedsBudget_ThrowsTimeoutExceptionAsync()
     {
         SkipIfNotWindows();
 
         // Exercises the path where TimeoutAfterAsync fires before the STA
-        // delegate returns.
-        Func<Task> act = async () => await SingleThreadedApartmentTask.RunWithTimeoutAsync<int>(
-            TimeSpan.FromMilliseconds(50),
-            () =>
-            {
-#pragma warning disable S2925
-                Thread.Sleep(500);
-#pragma warning restore S2925
-                return 1;
-            },
-            CancellationToken.None);
+        // delegate returns. Use a very large gap between the timeout budget
+        // and the delegate duration so that slow/contended CI agents on
+        // older .NET Framework targets still reliably observe the timeout
+        // rather than having the ThreadPool-scheduled Task.Delay starved
+        // past the delegate's completion.
+        using var release = new ManualResetEventSlim(initialState: false);
+        try
+        {
+            Func<Task> act = async () => await SingleThreadedApartmentTask.RunWithTimeoutAsync<int>(
+                TimeSpan.FromMilliseconds(200),
+                () =>
+                {
+#if NET8_0_OR_GREATER
+                    release.Wait(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+#else
+                    release.Wait(TimeSpan.FromSeconds(30));
+#endif
+                    return 1;
+                },
+                CancellationToken.None);
 
-        return act.Should().ThrowAsync<TimeoutException>();
+            await act.Should().ThrowAsync<TimeoutException>();
+        }
+        finally
+        {
+            release.Set();
+        }
     }
 
     private static void SkipIfNotWindows()

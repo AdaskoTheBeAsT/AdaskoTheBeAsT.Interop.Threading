@@ -5,7 +5,7 @@
 [![NuGet](https://img.shields.io/nuget/v/AdaskoTheBeAsT.Interop.Threading.svg?label=AdaskoTheBeAsT.Interop.Threading&logo=nuget)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Threading/)
 [![NuGet downloads](https://img.shields.io/nuget/dt/AdaskoTheBeAsT.Interop.Threading.svg?logo=nuget&label=downloads)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Threading/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-![TFMs](https://img.shields.io/badge/TFMs-net10.0--windows%20%7C%20net9.0--windows%20%7C%20net8.0--windows%20%7C%20net4.6.2%E2%80%93net4.8.1-512BD4?logo=dotnet)
+![TFMs](https://img.shields.io/badge/TFMs-net10.0%20%7C%20net9.0%20%7C%20net8.0%20%7C%20net4.6.2%E2%80%93net4.8.1-512BD4?logo=dotnet)
 ![Platform](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)
 ![Warnings](https://img.shields.io/badge/warnings--as--errors-on-green)
 ![Deterministic](https://img.shields.io/badge/deterministic%20build-on-blue)
@@ -51,7 +51,7 @@ And now it's a library. ✨
 - 🕊️ **Cooperative cancellation that actually composes.** Caller token ⨯ scheduler-shutdown token, observed pre- and post-execution by `StaWorkItem`.
 - 🧮 **Full-precision timing.** `StaYield` uses `Stopwatch.GetTimestamp()` with full-precision ms → tick math — no `Environment.TickCount` wraparound surprises.
 - 🔒 **Cross-process mutexes done right.** Global `\Global\` prefix, cached `MutexSecurity`, reflection-resolved `SetAccessControl` (works on net4x **and** net8+), abandoned-mutex recovery.
-- 🪟 **9 TFMs, all green.** `net10.0-windows`, `net9.0-windows`, `net8.0-windows`, `net481`, `net48`, `net472`, `net471`, `net47`, `net462` — the full matrix on every build.
+- 🪟 **9 TFMs, all green.** `net10.0`, `net9.0`, `net8.0`, `net481`, `net48`, `net472`, `net471`, `net47`, `net462` — the full matrix on every build. Windows-specific surfaces are annotated with `[SupportedOSPlatform("windows")]` so the analyzer guides cross-platform callers.
 - 🔎 **Source Link + `snupkg`.** Step into the library from your debugger without guessing.
 - 🛡️ **Warnings-as-errors + deterministic builds.** Because future-you deserves reproducibility.
 - 📐 **Tiny public surface.** Seven public types: `MutexHelper`, `SingleThreadedApartmentTask`, `SingleThreadedApartmentTaskScheduler`, `ISingleThreadedApartmentTaskScheduler`, `SingleThreadedApartmentTaskSchedulerOptions`, `StaYield`, `TaskExtension`.
@@ -102,9 +102,9 @@ Symbols ship as `.snupkg` with Source Link and embedded untracked sources — st
 
 | TFM | Status | Notes |
 | --- | :-: | --- |
-| `net10.0-windows` | ✅ | Primary target; `LibraryImport` source-generated P/Invoke. |
-| `net9.0-windows` | ✅ | Primary target; `LibraryImport`. |
-| `net8.0-windows` | ✅ | Primary target; `LibraryImport`. |
+| `net10.0` | ✅ | Primary target; `LibraryImport` source-generated P/Invoke. Windows-only surfaces annotated with `[SupportedOSPlatform("windows")]`. |
+| `net9.0` | ✅ | Primary target; `LibraryImport`. Windows-only surfaces annotated with `[SupportedOSPlatform("windows")]`. |
+| `net8.0` | ✅ | Primary target; `LibraryImport`. Windows-only surfaces annotated with `[SupportedOSPlatform("windows")]`. |
 | `net481` | ✅ | Windows desktop; classic `DllImport`. |
 | `net48` | ✅ | Same as above. |
 | `net472` | ✅ | Same as above. |
@@ -113,6 +113,8 @@ Symbols ship as `.snupkg` with Source Link and embedded untracked sources — st
 | `net462` | ✅ | Minimum supported TFM. |
 
 Every cell is built with `TreatWarningsAsErrors=true`, `ContinuousIntegrationBuild=true`, `Deterministic=true`, and exercised in CI.
+
+`TaskExtension` is cross-platform and usable on any OS. All other public types call Windows APIs (Win32 message pump, OLE, mutex ACLs) and are marked Windows-only — callers on non-Windows platforms will see `CA1416` warnings or can guard with `OperatingSystem.IsWindows()`.
 
 ---
 
@@ -831,8 +833,8 @@ public async Task RunPeriodicTaskAsync(
 
 ## 🏗️ Technical Details
 
-- **Frameworks**: .NET 10.0-windows, .NET 9.0-windows, .NET 8.0-windows, .NET Framework 4.8.1, 4.8, 4.7.2, 4.7.1, 4.7, 4.6.2
-- **Platform**: Windows only (uses Win32 APIs for message pumps and COM)
+- **Frameworks**: .NET 10.0, .NET 9.0, .NET 8.0, .NET Framework 4.8.1, 4.8, 4.7.2, 4.7.1, 4.7, 4.6.2
+- **Platform**: Windows-only runtime surface (uses Win32 APIs for message pumps and COM). Annotated with `[SupportedOSPlatform("windows")]` on .NET 8+. `TaskExtension` is cross-platform.
 - **P/Invoke**: Uses modern `LibraryImport` source generators on .NET 8+ and `DllImport` on .NET Framework targets
 - **Thread Safety**: All APIs are thread-safe
 - **Async/Await**: Full async/await support with proper ConfigureAwait usage
@@ -923,6 +925,15 @@ await AppSta.Default.RunAsync(() => ComOperation(), ct);
 This restores the old call-site ergonomics but also retains the old drawback of a single process-wide STA thread that never shuts down before process exit.
 
 ## 📋 Changelog
+
+### 3.1.0
+
+- TFMs changed from `net10.0-windows;net9.0-windows;net8.0-windows` to plain cross-platform `net10.0;net9.0;net8.0` (plus the existing `net4.6.2..net4.8.1`). The library can now be referenced from cross-platform projects.
+- Windows-specific types are annotated with `[SupportedOSPlatform("windows")]` (guarded by `#if NET8_0_OR_GREATER`) so the platform compatibility analyzer (CA1416) guides callers correctly:
+  - Annotated: `MutexHelper`, `SingleThreadedApartmentTask`, `SingleThreadedApartmentTaskScheduler`, `ISingleThreadedApartmentTaskScheduler`, `StaYield`, `NativeMethods`, `StaWorkItem<T>`, `IStaWorkItem`.
+  - Cross-platform: `TaskExtension` (pure Task/CancellationToken code) and `SingleThreadedApartmentTaskSchedulerOptions` (POCO).
+- No runtime behavior change on Windows; consumers on `net8.0-windows`/`net9.0-windows`/`net10.0-windows` continue to work unchanged.
+- **Note for cross-platform callers:** projects on plain `net8.0`/`net9.0`/`net10.0` that invoke Windows-specific APIs will now see `CA1416` warnings at the call sites. Projects with `TreatWarningsAsErrors=true` may need to add `OperatingSystem.IsWindows()` guards or suppress `CA1416` locally.
 
 ### 3.0.0 (breaking)
 

@@ -39,7 +39,7 @@ public class TaskExtensionTest
             },
             ct);
 
-        var result = await t.TimeoutAfterAsync(TimeSpan.FromMilliseconds(200), ct);
+        var result = await t.TimeoutAfterAsync(TimeSpan.FromSeconds(30), ct);
         result.Should().Be(99);
     }
 

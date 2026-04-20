@@ -2,6 +2,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+#if NET8_0_OR_GREATER
+using System.Runtime.Versioning;
+#endif
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -12,6 +15,9 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 /// Each instance owns its own STA thread and serializes all queued work items onto it.
 /// Dispose the instance to stop the thread deterministically.
 /// </summary>
+#if NET8_0_OR_GREATER
+[SupportedOSPlatform("windows")]
+#endif
 public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartmentTaskScheduler
 {
     private readonly ConcurrentQueue<IStaWorkItem> _queue = new();
@@ -157,10 +163,14 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
     public Task<T?> RunAsync<T>(Func<StaYield, T?> work, CancellationToken cancellationToken = default)
 #pragma warning restore SA1202
     {
+#if NET6_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(work);
+#else
         if (work is null)
         {
             throw new ArgumentNullException(nameof(work));
         }
+#endif
 
         if (cancellationToken.IsCancellationRequested)
         {
@@ -176,10 +186,14 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
     /// <inheritdoc />
     public Task RunAsync(Action<StaYield> work, CancellationToken cancellationToken = default)
     {
+#if NET6_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(work);
+#else
         if (work is null)
         {
             throw new ArgumentNullException(nameof(work));
         }
+#endif
 
         if (cancellationToken.IsCancellationRequested)
         {
@@ -207,10 +221,14 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
     /// <inheritdoc />
     public Task<T?> RunAsync<T>(Func<T?> func, TimeSpan timeout, CancellationToken cancellationToken)
     {
+#if NET6_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(func);
+#else
         if (func is null)
         {
             throw new ArgumentNullException(nameof(func));
         }
+#endif
 
         if (timeout != Timeout.InfiniteTimeSpan &&
             (timeout < TimeSpan.Zero
