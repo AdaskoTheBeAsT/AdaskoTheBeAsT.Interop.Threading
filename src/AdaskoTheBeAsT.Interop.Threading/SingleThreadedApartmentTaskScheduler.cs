@@ -82,37 +82,65 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
         _thread.Start();
 
         // Block briefly until the STA thread has completed OLE initialization (or
-        // definitively failed). This guarantees _oleInitResult is observable to the
-        // first caller of RunAsync so an initialization failure surfaces as an
-        // InvalidOperationException instead of being hidden behind cancellations
-        // from DrainQueueAsCanceled().
-        //
-        // The wait is bounded so that an unexpected ThreadEntry failure before the
-        // TrySetResult/TrySetException call (e.g. an AppDomain-unload race, a
-        // P/Invoke that hard-faults, or an impossibly slow scheduler pickup of the
-        // new thread) surfaces as a clear InvalidOperationException instead of
-        // deadlocking construction. ThreadEntry also wraps its body in a try/catch
-        // that pushes the exception onto _threadReady, so any throwable propagates
-        // here deterministically.
-        //
-        // VSTHRD002 is suppressed because the blocking wait is intentional and is
-        // the synchronization boundary between "ctor returns" and "STA thread is
-        // ready to receive work". Making the constructor async would push the
-        // waiting burden onto every caller without removing the underlying wait.
-#pragma warning disable VSTHRD002
-        var initTimeout = TimeSpan.FromSeconds(30);
-        if (!_threadReady.Task.Wait(initTimeout))
-        {
-            throw new InvalidOperationException(
-                $"Timed out after {initTimeout} while waiting for the STA thread '{threadName}' to initialize.");
-        }
-
-        _threadReady.Task.GetAwaiter().GetResult();
-#pragma warning restore VSTHRD002
+        // definitively failed). Handled in a helper to keep the ctor under
+        // MA0051's method-length ceiling.
+        WaitForThreadInitialization(threadName);
     }
 
+    // The wait is bounded so that an unexpected ThreadEntry failure before the
+    // TrySetResult/TrySetException call (AppDomain-unload race, hard-faulting
+    // P/Invoke, impossibly slow scheduler pickup) surfaces as a clear
+    // InvalidOperationException instead of deadlocking construction.
+    //
+    // Task.Wait(timeout) would throw AggregateException immediately if
+    // _threadReady has been completed with an exception (via TrySetException
+    // from ThreadEntry's top-level catch), bypassing both the timeout branch
+    // and the subsequent GetAwaiter().GetResult() that unwraps the real root
+    // cause. Task.WaitAny returns the index of the first completed task
+    // WITHOUT rethrowing, so we can route to either the timeout path or the
+    // GetAwaiter call that surfaces the original exception unwrapped.
+    //
+    // VSTHRD002 is suppressed because the blocking wait is intentional and is
+    // the synchronization boundary between "ctor returns" and "STA thread is
+    // ready to receive work". Making the constructor async would push the
+    // waiting burden onto every caller without removing the underlying wait.
+    //
+    // AsyncFixer04: timeoutCts is only observed by a Task.Delay that we
+    // explicitly cancel after the WaitAny returns; there is no outstanding
+    // async operation that could outlive the using scope.
+    // SA1202: this private helper is intentionally grouped with the ctor it
+    // supports instead of being pushed below all public members.
+#pragma warning disable VSTHRD002, AsyncFixer04
+    private void WaitForThreadInitialization(string threadName)
+    {
+        var initTimeout = TimeSpan.FromSeconds(30);
+        using (var timeoutCts = new CancellationTokenSource())
+        {
+            var delayTask = Task.Delay(initTimeout, timeoutCts.Token);
+            var winner = Task.WaitAny(_threadReady.Task, delayTask);
+
+            if (winner != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Timed out after {initTimeout} while waiting for the STA thread '{threadName}' to initialize.");
+            }
+
+            timeoutCts.Cancel();
+        }
+
+        // _threadReady is complete; GetAwaiter().GetResult() unwraps any
+        // exception recorded by ThreadEntry (no AggregateException wrapper).
+        _threadReady.Task.GetAwaiter().GetResult();
+    }
+#pragma warning restore VSTHRD002, AsyncFixer04
+
+    // SA1202: this public RunAsync entry point follows the private helper
+    // WaitForThreadInitialization which is intentionally kept adjacent to
+    // the ctor; the pragma keeps that ordering choice file-local.
+#pragma warning disable SA1202
     /// <inheritdoc />
     public Task<T?> RunAsync<T>(Func<StaYield, T?> work, CancellationToken cancellationToken = default)
+#pragma warning restore SA1202
     {
         if (work is null)
         {
