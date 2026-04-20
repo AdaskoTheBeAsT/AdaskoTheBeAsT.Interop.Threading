@@ -88,6 +88,10 @@ public class StaWorkItemCoverageTest
         ManualResetEventSlim releaseFirst)
     {
         // First work item: blocks the STA thread so subsequent items sit in the queue.
+        // MA0040: the delegate runs on the dedicated STA thread where xunit's
+        // TestContext is not installed; using TestContext.Current.CancellationToken
+        // would throw. The timeout argument IS the intended cooperative bound.
+#pragma warning disable MA0040
         var first = scheduler.RunAsync<object?>(
             () =>
             {
@@ -98,6 +102,7 @@ public class StaWorkItemCoverageTest
             CancellationToken.None);
 
         firstRunning.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+#pragma warning restore MA0040
 
         // AsyncFixer04: queue additional items before awaiting so they sit
         // behind the blocked STA thread; both tasks are awaited below.
