@@ -113,13 +113,14 @@ public class SingleThreadedApartmentTaskSchedulerCoverageTest
 
         var task = EnqueueCooperativeDelegateAsync(scheduler, cts, started);
 
-        // xUnit1051: ManualResetEventSlim.Wait has an overload that accepts
-        // a CancellationToken but the test specifically does NOT want the
-        // test-framework's token to short-circuit the cooperative wait
-        // under investigation here.
-#pragma warning disable xUnit1051
+        // xUnit1051 + MA0040: ManualResetEventSlim.Wait has an overload that
+        // accepts a CancellationToken but the test specifically does NOT want
+        // the test-framework's token to short-circuit the cooperative wait
+        // under investigation here; passing cts.Token would bypass the very
+        // signal (cts.Cancel below) that the assertion is trying to observe.
+#pragma warning disable xUnit1051, MA0040
         started.Wait(TimeSpan.FromSeconds(2)).Should().BeTrue();
-#pragma warning restore xUnit1051
+#pragma warning restore xUnit1051, MA0040
 
 #if NET8_0_OR_GREATER
         await cts.CancelAsync();

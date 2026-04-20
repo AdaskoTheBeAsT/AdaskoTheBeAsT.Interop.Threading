@@ -23,7 +23,12 @@ public class StaWorkItemCoverageTest
         // the task as canceled rather than completed (exercises the branch
         // where _cancellationToken.IsCancellationRequested is true after the
         // delegate returns normally).
-#pragma warning disable xUnit1051
+        // xUnit1051 + MA0040: the delegate runs on the STA thread and must
+        // observe the CALLER's cts.Token via the cooperative cancellation
+        // path under test - passing cts.Token into Wait would bypass the
+        // exact branch (delegate returns normally, StaWorkItem observes the
+        // already-canceled token) that we are trying to exercise.
+#pragma warning disable xUnit1051, MA0040
         var task = scheduler.RunAsync<int>(
             () =>
             {
@@ -31,7 +36,7 @@ public class StaWorkItemCoverageTest
                 return 42;
             },
             cts.Token);
-#pragma warning restore xUnit1051
+#pragma warning restore xUnit1051, MA0040
 
 #if NET8_0_OR_GREATER
         await cts.CancelAsync();
