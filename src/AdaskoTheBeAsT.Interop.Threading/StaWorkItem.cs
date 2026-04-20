@@ -18,7 +18,7 @@ internal sealed class StaWorkItem<T> : IStaWorkItem
     private readonly TaskCompletionSource<T?> _taskCompletionSource =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    private CancellationTokenRegistration _cancellationRegistration;
+    private readonly CancellationTokenRegistration _cancellationRegistration;
 
     private int _state = PendingState;
 
@@ -27,12 +27,11 @@ internal sealed class StaWorkItem<T> : IStaWorkItem
         _work = work ?? throw new ArgumentNullException(nameof(work));
         _cancellationToken = cancellationToken;
 
-        if (cancellationToken.CanBeCanceled)
-        {
-            _cancellationRegistration = cancellationToken.Register(
+        _cancellationRegistration = cancellationToken.CanBeCanceled
+            ? cancellationToken.Register(
                 static state => ((StaWorkItem<T>)state!).OnCanceled(),
-                this);
-        }
+                this)
+            : default;
     }
 
     public Task<T?> Task => _taskCompletionSource.Task;

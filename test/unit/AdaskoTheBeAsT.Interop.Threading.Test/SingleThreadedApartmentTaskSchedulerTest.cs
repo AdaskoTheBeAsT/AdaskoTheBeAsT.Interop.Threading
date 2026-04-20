@@ -9,7 +9,7 @@ namespace AdaskoTheBeAsT.Interop.Threading.Test;
 public class SingleThreadedApartmentTaskSchedulerTest
 {
     [Fact]
-    public async Task RunAsync_Generic_ExecutesOnSta_AndReturnsValue()
+    public async Task RunAsync_Generic_ExecutesOnSta_AndReturnsValueAsync()
     {
         SkipIfNotWindows();
 
@@ -23,11 +23,11 @@ public class SingleThreadedApartmentTaskSchedulerTest
             },
             CancellationToken.None);
 
-        id.Should().BeGreaterThan(0);
+        id.Should().BePositive();
     }
 
     [Fact]
-    public async Task RunAsync_Void_CompletesAndPumps()
+    public async Task RunAsync_Void_CompletesAndPumpsAsync()
     {
         SkipIfNotWindows();
 
@@ -46,7 +46,7 @@ public class SingleThreadedApartmentTaskSchedulerTest
     }
 
     [Fact]
-    public async Task RunAsync_ProcessesMultipleItems_InOrder()
+    public async Task RunAsync_ProcessesMultipleItems_InOrderAsync()
     {
         SkipIfNotWindows();
 
@@ -75,7 +75,7 @@ public class SingleThreadedApartmentTaskSchedulerTest
     }
 
     [Fact]
-    public async Task RunAsync_PumpsBetweenItems_DoesNotHang()
+    public async Task RunAsync_PumpsBetweenItems_DoesNotHangAsync()
     {
         SkipIfNotWindows();
 

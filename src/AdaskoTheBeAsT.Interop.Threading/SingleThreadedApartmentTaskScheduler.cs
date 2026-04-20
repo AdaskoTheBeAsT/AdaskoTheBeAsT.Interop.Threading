@@ -40,6 +40,14 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
     private int _disposedState; // 0 = alive, 1 = disposing/disposed. Interlocked.
     private int _oleInitResult;
 
+    // Records the native wait result when MsgWaitForMultipleObjects returns an
+    // unexpected / error value (including WAIT_FAILED). When non-zero the STA
+    // thread has exited its message loop due to a native wait failure rather
+    // than a clean shutdown, and RunAsync surfaces this to callers as a
+    // deterministic InvalidOperationException instead of silently returning
+    // ObjectDisposedException from the (later) primitive disposal.
+    private uint _messageLoopFailureResult;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="SingleThreadedApartmentTaskScheduler"/> class
     /// using default options and starts a dedicated STA background thread that runs an OLE message loop.
@@ -226,6 +234,14 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
 
         if (_isShuttingDown)
         {
+            var failureResult = _messageLoopFailureResult;
+            if (failureResult != 0)
+            {
+                return Task.FromException<T?>(
+                    new InvalidOperationException(
+                        $"The STA task scheduler message loop exited unexpectedly (native wait result: 0x{failureResult:X8})."));
+            }
+
             return Task.FromException<T?>(new InvalidOperationException("The STA task scheduler is shutting down."));
         }
 
@@ -619,19 +635,30 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
             if (result == NativeMethods.WAIT_OBJECT_0)
             {
                 ProcessQueuedItems();
+                continue;
             }
-            else if (result == NativeMethods.WAIT_OBJECT_0 + 1)
-            {
-                break;
-            }
-            else if (result == NativeMethods.WAIT_OBJECT_0 + handles.Length)
+
+            if (result == NativeMethods.WAIT_OBJECT_0 + handles.Length)
             {
                 NativeMethods.PumpPendingMessages();
+                continue;
             }
-            else
+
+            if (result == NativeMethods.WAIT_OBJECT_0 + 1)
             {
+                // Clean shutdown signal from Shutdown/Dispose.
                 break;
             }
+
+            // Unexpected wait result (including WAIT_FAILED == 0xFFFFFFFF).
+            // Record the failure and mark the scheduler as shutting down so
+            // subsequent RunAsync calls surface a deterministic
+            // InvalidOperationException instead of silently returning
+            // ObjectDisposedException from the later primitive disposal.
+            _messageLoopFailureResult = result;
+            _isShuttingDown = true;
+            Debug.WriteLine($"STA message loop exited on unexpected wait result: 0x{result:X8}");
+            break;
         }
 
         DrainQueueAsCanceled();

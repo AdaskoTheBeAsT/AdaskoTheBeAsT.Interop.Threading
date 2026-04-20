@@ -9,7 +9,7 @@ namespace AdaskoTheBeAsT.Interop.Threading.Test;
 public class TaskExtensionTest
 {
     [Fact]
-    public Task TimeoutAfterAsync_TimesOut()
+    public Task TimeoutAfterAsync_TimesOutAsync()
     {
         var never = new TaskCompletionSource<int>();
         Func<Task> act = async () =>
@@ -23,20 +23,28 @@ public class TaskExtensionTest
     }
 
     [Fact]
-    public async Task TimeoutAfterAsync_PropagatesResult_WhenInTime()
+    public async Task TimeoutAfterAsync_PropagatesResult_WhenInTimeAsync()
     {
-        var t = Task.Run(async () =>
-        {
-            await Task.Delay(20);
-            return 99;
-        });
+#if NET8_0_OR_GREATER
+        var ct = TestContext.Current.CancellationToken;
+#else
+        var ct = CancellationToken.None;
+#endif
 
-        var result = await t.TimeoutAfterAsync(TimeSpan.FromMilliseconds(200), CancellationToken.None);
+        var t = Task.Run(
+            async () =>
+            {
+                await Task.Delay(20, ct);
+                return 99;
+            },
+            ct);
+
+        var result = await t.TimeoutAfterAsync(TimeSpan.FromMilliseconds(200), ct);
         result.Should().Be(99);
     }
 
     [Fact]
-    public async Task TimeoutAfterAsync_PropagatesCancellation()
+    public async Task TimeoutAfterAsync_PropagatesCancellationAsync()
     {
         using var cts = new CancellationTokenSource();
         var never = new TaskCompletionSource<int>();
