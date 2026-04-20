@@ -142,7 +142,7 @@ Most Windows interop pain comes from four recurring themes. This library gives e
              └──────────────────────────────────────┘
 ```
 
-Use one or all of them. They're independent, each < 200 LoC, each with a tight test matrix.
+Use one or all of them. They're independent, focused primitives, each with a tight test matrix.
 
 ---
 

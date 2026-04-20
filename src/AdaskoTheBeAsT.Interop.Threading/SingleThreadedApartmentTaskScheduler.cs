@@ -204,12 +204,14 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
             throw new ArgumentNullException(nameof(func));
         }
 
-        if (timeout != Timeout.InfiniteTimeSpan && timeout < TimeSpan.Zero)
+        if (timeout != Timeout.InfiniteTimeSpan &&
+            (timeout < TimeSpan.Zero
+             || timeout.TotalMilliseconds > int.MaxValue - 1))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(timeout),
                 timeout,
-                $"Timeout must be either {nameof(Timeout.InfiniteTimeSpan)} or a non-negative {nameof(TimeSpan)}.");
+                $"Timeout must be {nameof(Timeout.InfiniteTimeSpan)} or a non-negative {nameof(TimeSpan)} whose total milliseconds do not exceed {int.MaxValue - 1} (the upper bound supported by {nameof(Task)}.{nameof(Task.Delay)}).");
         }
 
         if (cancellationToken.IsCancellationRequested)

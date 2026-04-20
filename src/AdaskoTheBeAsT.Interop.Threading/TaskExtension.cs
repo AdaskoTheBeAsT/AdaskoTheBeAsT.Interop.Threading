@@ -19,11 +19,22 @@ public static class TaskExtension
     /// <returns>A task that produces the original result when the operation completes in time.</returns>
     /// <exception cref="TimeoutException">Thrown when the timeout expires before the task completes.</exception>
     /// <exception cref="OperationCanceledException">Thrown when <paramref name="cancellationToken"/> is canceled before the task completes.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="timeout"/> is negative or exceeds the range supported by <see cref="Task.Delay(TimeSpan, CancellationToken)"/>.</exception>
     public static async Task<TResult> TimeoutAfterAsync<TResult>(
         this Task<TResult> task,
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
+        if (timeout != Timeout.InfiniteTimeSpan &&
+            (timeout < TimeSpan.Zero
+             || timeout.TotalMilliseconds > int.MaxValue - 1))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(timeout),
+                timeout,
+                $"Timeout must be {nameof(Timeout.InfiniteTimeSpan)} or a non-negative {nameof(TimeSpan)} whose total milliseconds do not exceed {int.MaxValue - 1} (the upper bound supported by {nameof(Task)}.{nameof(Task.Delay)}).");
+        }
+
         using var timeoutCts = new CancellationTokenSource();
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
         var delayTask = Task.Delay(timeout, linkedCts.Token);
