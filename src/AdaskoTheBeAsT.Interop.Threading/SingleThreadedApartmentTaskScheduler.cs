@@ -429,9 +429,19 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
 #pragma warning restore VSTHRD003
         }
 
-        // Timeout fired first. Work item now observes the linked token
-        // cancellation cooperatively (or is drained on dequeue). Honor caller
-        // cancellation first, then surface TimeoutException.
+        // Timeout fired first. We must explicitly cancel timeoutCts so that
+        // the linked CTS feeding the StaWorkItem observes cancellation and
+        // the delegate can stop running on the STA thread. Without this
+        // step the work item would keep executing even though the caller
+        // has already received TimeoutException, defeating the cooperative-
+        // timeout contract of this method.
+#if NET8_0_OR_GREATER
+        await timeoutCts.CancelAsync().ConfigureAwait(false);
+#else
+        timeoutCts.Cancel();
+#endif
+
+        // Honor caller cancellation first, then surface TimeoutException.
         cancellationToken.ThrowIfCancellationRequested();
 
         // Avoid UnobservedTaskException when the work item eventually faults;
