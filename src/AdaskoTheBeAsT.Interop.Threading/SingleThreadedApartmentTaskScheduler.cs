@@ -110,6 +110,11 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
     // async operation that could outlive the using scope.
     // SA1202: this private helper is intentionally grouped with the ctor it
     // supports instead of being pushed below all public members.
+    // MA0040: the Task.WaitAny call deliberately does NOT take a
+    // CancellationToken overload because cancellation of construction would
+    // leave the just-started STA thread in a partially-initialized state
+    // (the thread would keep running but the instance would never complete
+    // construction); the timeout IS the intended upper bound here.
 #pragma warning disable VSTHRD002, AsyncFixer04
     private void WaitForThreadInitialization(string threadName)
     {
@@ -117,7 +122,9 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
         using (var timeoutCts = new CancellationTokenSource())
         {
             var delayTask = Task.Delay(initTimeout, timeoutCts.Token);
+#pragma warning disable MA0040
             var winner = Task.WaitAny(_threadReady.Task, delayTask);
+#pragma warning restore MA0040
 
             if (winner != 0)
             {
