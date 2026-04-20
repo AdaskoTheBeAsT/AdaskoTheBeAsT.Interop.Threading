@@ -1,28 +1,150 @@
-# AdaskoTheBeAsT.Interop.Threading
+# 🧵 AdaskoTheBeAsT.Interop.Threading
 
-[![NuGet](https://img.shields.io/nuget/v/AdaskoTheBeAsT.Interop.Threading.svg)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Threading/)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+> 🪟 A friendly, production-ready Windows threading toolbox for cross-process mutexes, STA/COM work, and task timeouts — with a message pump that *actually* pumps. 💨
 
-A high-performance, production-ready C# library for advanced threading scenarios on Windows. Provides robust utilities for cross-process mutex synchronization, STA (Single-Threaded Apartment) task execution, and task timeout management with proper message pump handling.
+[![NuGet](https://img.shields.io/nuget/v/AdaskoTheBeAsT.Interop.Threading.svg?label=AdaskoTheBeAsT.Interop.Threading&logo=nuget)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Threading/)
+[![NuGet downloads](https://img.shields.io/nuget/dt/AdaskoTheBeAsT.Interop.Threading.svg?logo=nuget&label=downloads)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Threading/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+![TFMs](https://img.shields.io/badge/TFMs-net10.0--windows%20%7C%20net9.0--windows%20%7C%20net8.0--windows%20%7C%20net4.6.2%E2%80%93net4.8.1-512BD4?logo=dotnet)
+![Platform](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)
+![Warnings](https://img.shields.io/badge/warnings--as--errors-on-green)
+![Deterministic](https://img.shields.io/badge/deterministic%20build-on-blue)
+[![CI](https://img.shields.io/github/actions/workflow/status/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading/ci.yml?branch=main&logo=github&label=CI)](https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading/actions)
 
-## 🚀 Why Use This Library?
+### 🔬 Code quality — SonarCloud
 
-- **Cross-Process Synchronization**: Global mutexes with proper security settings and abandoned mutex recovery
-- **STA Thread Support**: Execute code in STA context with full COM interop support and message pump handling
-- **Production-Ready**: Handles edge cases like abandoned mutexes, TickCount wraparound, and cancellation token propagation
-- **Multi-Framework Support**: Targets .NET Standard 2.0, .NET 8.0, .NET 9.0, and .NET 10.0 with optimized P/Invoke for each
-- **Zero External Dependencies**: Only uses System.Threading.AccessControl for enhanced security
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=coverage)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=coverage)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=sqale_rating)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=sqale_rating)
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=reliability_rating)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=reliability_rating)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=security_rating)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=security_rating)
+[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=bugs)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=bugs)
+[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=vulnerabilities)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=vulnerabilities)
+[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=code_smells)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=code_smells)
+[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=duplicated_lines_density)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=duplicated_lines_density)
+[![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=sqale_index)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=sqale_index)
+[![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=ncloc)](https://sonarcloud.io/component_measures?id=AdaskoTheBeAsT_AdaskoTheBeAsT.Interop.Threading&metric=ncloc)
 
-## 📦 Installation
+---
+
+## 👋 Hello, threading friend
+
+Native-on-Windows code is fun, right up until it *isn't*. You know the signs:
+
+- 🏢 a COM component that quietly insists on **STA** + message pumping
+- 🔒 a resource that must be **serialized across processes** (not just threads)
+- ⏳ a call that might never come back, so you need a real **timeout** — one that respects cancellation tokens
+- 🧟 a mutex left behind by a process that crashed, waiting to ambush the next caller
+- 🧪 a scheduler that must behave in unit tests: **disposable, injectable, mockable**
+
+`AdaskoTheBeAsT.Interop.Threading` is the reusable boilerplate you keep rewriting in every project: named cross-process mutexes with sensible ACLs, a dedicated STA thread with a real OLE message loop, and task timeouts that distinguish *"I gave up"* from *"the caller canceled me"*. 📦
+
+And now it's a library. ✨
+
+---
+
+## ✨ Why you'll love this
+
+- 🧵 **Instance-based STA scheduler.** `SingleThreadedApartmentTaskScheduler` owns its own STA thread, implements `ISingleThreadedApartmentTaskScheduler` + `IDisposable`, and shuts down **deterministically**. No more static global state.
+- 🧩 **DI-friendly options.** `SingleThreadedApartmentTaskSchedulerOptions` binds to `Microsoft.Extensions.Options` out of the box.
+- ⏱️ **Per-item timeouts.** `RunAsync(func, timeout, ct)` overload plus `DefaultWorkItemTimeout` on options.
+- 🕊️ **Cooperative cancellation that actually composes.** Caller token ⨯ scheduler-shutdown token, observed pre- and post-execution by `StaWorkItem`.
+- 🧮 **Full-precision timing.** `StaYield` uses `Stopwatch.GetTimestamp()` with full-precision ms → tick math — no `Environment.TickCount` wraparound surprises.
+- 🔒 **Cross-process mutexes done right.** Global `\Global\` prefix, cached `MutexSecurity`, reflection-resolved `SetAccessControl` (works on net4x **and** net8+), abandoned-mutex recovery.
+- 🪟 **9 TFMs, all green.** `net10.0-windows`, `net9.0-windows`, `net8.0-windows`, `net481`, `net48`, `net472`, `net471`, `net47`, `net462` — the full matrix on every build.
+- 🔎 **Source Link + `snupkg`.** Step into the library from your debugger without guessing.
+- 🛡️ **Warnings-as-errors + deterministic builds.** Because future-you deserves reproducibility.
+- 📐 **Tiny public surface.** Seven public types: `MutexHelper`, `SingleThreadedApartmentTask`, `SingleThreadedApartmentTaskScheduler`, `ISingleThreadedApartmentTaskScheduler`, `SingleThreadedApartmentTaskSchedulerOptions`, `StaYield`, `TaskExtension`.
+
+---
+
+## 📦 Install
 
 ```bash
 dotnet add package AdaskoTheBeAsT.Interop.Threading
 ```
 
-Or via NuGet Package Manager:
+Or via the NuGet Package Manager console:
+
 ```powershell
 Install-Package AdaskoTheBeAsT.Interop.Threading
 ```
+
+Symbols ship as `.snupkg` with Source Link and embedded untracked sources — step in, look around, it's fine.
+
+---
+
+## 📚 Table of contents
+
+- [👋 Hello, threading friend](#-hello-threading-friend)
+- [✨ Why you'll love this](#-why-youll-love-this)
+- [📦 Install](#-install)
+- [🗺️ Target framework matrix](#️-target-framework-matrix)
+- [💡 The core idea](#-the-core-idea)
+- [🎯 Key features](#-key-features)
+  - [MutexHelper — cross-process synchronization](#1-mutexhelper---cross-process-synchronization)
+  - [SingleThreadedApartmentTask — STA execution](#2-singlethreadedapartmenttask---sta-execution)
+  - [SingleThreadedApartmentTaskScheduler — reusable STA thread](#3-singlethreadedapartmenttaskscheduler---reusable-sta-thread)
+  - [TaskExtension — task timeout management](#4-taskextension---task-timeout-management)
+- [🔧 Advanced scenarios](#-advanced-scenarios)
+- [🎓 Real-world examples](#-real-world-examples)
+- [🏗️ Technical details](#️-technical-details)
+- [🧭 Architecture decision records](#-architecture-decision-records)
+- [⚠️ Known considerations](#️-known-considerations)
+- [🔄 Migration guide (2.x → 3.0)](#-migration-guide)
+- [📋 Changelog](#-changelog)
+- [📝 License](#-license)
+- [🤝 Contributing](#-contributing)
+
+---
+
+## 🗺️ Target framework matrix
+
+| TFM | Status | Notes |
+| --- | :-: | --- |
+| `net10.0-windows` | ✅ | Primary target; `LibraryImport` source-generated P/Invoke. |
+| `net9.0-windows` | ✅ | Primary target; `LibraryImport`. |
+| `net8.0-windows` | ✅ | Primary target; `LibraryImport`. |
+| `net481` | ✅ | Windows desktop; classic `DllImport`. |
+| `net48` | ✅ | Same as above. |
+| `net472` | ✅ | Same as above. |
+| `net471` | ✅ | Same as above. |
+| `net47` | ✅ | Same as above. |
+| `net462` | ✅ | Minimum supported TFM. |
+
+Every cell is built with `TreatWarningsAsErrors=true`, `ContinuousIntegrationBuild=true`, `Deterministic=true`, and exercised in CI.
+
+---
+
+## 💡 The core idea
+
+Most Windows interop pain comes from four recurring themes. This library gives each one a tiny, focused primitive:
+
+```
+             ┌──────────────────────────────────────┐
+             │  Caller (your app / test / service)  │
+             └──────────────────────────────────────┘
+                 │          │          │         │
+                 │ Mutex    │ STA      │ Schedule │ Timeout
+                 ▼          ▼          ▼         ▼
+         ┌───────────┐ ┌─────────┐ ┌───────┐ ┌──────────────┐
+         │MutexHelper│ │SingleThr│ │Scheduler│ │TaskExtension│
+         │  🔒       │ │Apartment│ │  🧵     │ │    ⏱️       │
+         │           │ │Task 🏢  │ │         │ │              │
+         │Global\... │ │Ad-hoc   │ │Persistent│ │TimeoutAfter │
+         │abandoned- │ │STA run  │ │STA queue │ │Async, CT-   │
+         │mutex OK   │ │per call │ │ + pump  │ │aware        │
+         └───────────┘ └─────────┘ └───────┘ └──────────────┘
+                 │          │          │         │
+                 ▼          ▼          ▼         ▼
+             ┌──────────────────────────────────────┐
+             │  Win32 / OLE / Message Pump (Windows)│
+             └──────────────────────────────────────┘
+```
+
+Use one or all of them. They're independent, focused primitives, each with a tight test matrix.
+
+---
 
 ## 🎯 Key Features
 
@@ -122,27 +244,50 @@ Share a single STA thread across multiple tasks for better performance when you 
 - OLE/COM initialization
 - Queued task execution
 - Cancellation support
+- Instance-based (`IDisposable`) so each scheduler owns its own STA thread and can be deterministically shut down
+- `ISingleThreadedApartmentTaskScheduler` interface for dependency injection and unit-testing
 
 **Usage:**
 ```csharp
 // Multiple tasks can share the same STA thread
-var task1 = SingleThreadedApartmentTaskScheduler.RunAsync(() => ComOperation1());
-var task2 = SingleThreadedApartmentTaskScheduler.RunAsync(() => ComOperation2());
+using var scheduler = new SingleThreadedApartmentTaskScheduler();
+
+var task1 = scheduler.RunAsync(() => ComOperation1(), cancellationToken);
+var task2 = scheduler.RunAsync(() => ComOperation2(), cancellationToken);
 
 await Task.WhenAll(task1, task2);
 ```
 
 **With StaYield:**
 ```csharp
-await SingleThreadedApartmentTaskScheduler.RunAsync((StaYield staYield) => {
+using var scheduler = new SingleThreadedApartmentTaskScheduler();
+
+await scheduler.RunAsync((StaYield staYield) => {
     while (!condition) {
         // Wait for condition while pumping messages
         staYield.SpinUntil(() => CheckCondition(), checkEveryMs: 10);
     }
-    
+
     // Or sleep without blocking the message pump
     staYield.Sleep(1000);
 });
+```
+
+**Register as a singleton in DI:**
+```csharp
+builder.Services.AddSingleton<ISingleThreadedApartmentTaskScheduler>(
+    _ => new SingleThreadedApartmentTaskScheduler(
+        new SingleThreadedApartmentTaskSchedulerOptions { ThreadName = "App-STA" }));
+```
+
+Or, if you already use `Microsoft.Extensions.Options`, bind the options from configuration and resolve them in the factory:
+
+```csharp
+builder.Services.Configure<SingleThreadedApartmentTaskSchedulerOptions>(
+    builder.Configuration.GetSection("StaScheduler"));
+builder.Services.AddSingleton<ISingleThreadedApartmentTaskScheduler>(sp =>
+    new SingleThreadedApartmentTaskScheduler(
+        sp.GetRequiredService<IOptions<SingleThreadedApartmentTaskSchedulerOptions>>().Value));
 ```
 
 ### 4. TaskExtension - Task Timeout Management
@@ -181,6 +326,7 @@ try {
 When running long operations in STA threads, use `StaYield` to keep the message pump responsive.
 
 ```csharp
+// Works identically with SingleThreadedApartmentTask or an instance of SingleThreadedApartmentTaskScheduler
 var result = await SingleThreadedApartmentTask.RunAsync((StaYield staYield) => {
     var items = GetLargeItemList();
     
@@ -275,7 +421,7 @@ var value = await SingleThreadedApartmentTask.RunWithTimeoutAsync(
     cancellationToken);
 ```
 
-For repeated COM calculations that must stay serialized on one STA thread, use `SingleThreadedApartmentTaskScheduler.RunAsync(...)`.
+For repeated COM calculations that must stay serialized on one STA thread, create an instance of `SingleThreadedApartmentTaskScheduler` and reuse it (see the hosted-service example below).
 
 See [Using AdaskoTheBeAsT.Interop.Threading with AdaskoTheBeAsT.Interop.COM](docs/using-with-adaskothebeast-interop-com.md) for a full guide.
 
@@ -305,13 +451,15 @@ public sealed class CalculationRequest
 public sealed class ComCalculationHostedService : BackgroundService
 {
     private readonly Channel<CalculationRequest> _requests = Channel.CreateUnbounded<CalculationRequest>();
+    private readonly ISingleThreadedApartmentTaskScheduler _scheduler;
     private readonly string _comDllPath;
     private readonly string _manifestPath;
     private ComObjectHandle<LegacyCalculator.CalculatorClass>? _calculatorHandle;
     private LegacyCalculator.CalculatorClass? _calculator;
 
-    public ComCalculationHostedService()
+    public ComCalculationHostedService(ISingleThreadedApartmentTaskScheduler scheduler)
     {
+        _scheduler = scheduler;
         var basePath = AppContext.BaseDirectory;
         _comDllPath = Path.Combine(basePath, "LegacyCalculator.dll");
         _manifestPath = Path.Combine(basePath, "LegacyCalculator.manifest");
@@ -319,7 +467,7 @@ public sealed class ComCalculationHostedService : BackgroundService
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
-        await SingleThreadedApartmentTaskScheduler.RunAsync(
+        await _scheduler.RunAsync(
             () =>
             {
                 var creation = Executor.Create(
@@ -372,7 +520,7 @@ public sealed class ComCalculationHostedService : BackgroundService
         {
             try
             {
-                var value = await SingleThreadedApartmentTaskScheduler.RunAsync(
+                var value = await _scheduler.RunAsync(
                     () =>
                     {
                         if (_calculator is null)
@@ -398,7 +546,7 @@ public sealed class ComCalculationHostedService : BackgroundService
         _requests.Writer.TryComplete();
         await base.StopAsync(cancellationToken);
 
-        await SingleThreadedApartmentTaskScheduler.RunAsync(
+        await _scheduler.RunAsync(
             () =>
             {
                 if (_calculatorHandle is not null)
@@ -423,9 +571,12 @@ public sealed class ComCalculationHostedService : BackgroundService
 }
 ```
 
-Register it once and expose the same instance both as hosted service and as an injectable service:
+Register it once and expose the same instance both as hosted service and as an injectable service. Register the scheduler as a singleton so it owns a single STA thread for the app lifetime:
 
 ```csharp
+builder.Services.AddSingleton<ISingleThreadedApartmentTaskScheduler>(
+    _ => new SingleThreadedApartmentTaskScheduler(
+        new SingleThreadedApartmentTaskSchedulerOptions { ThreadName = "App-STA" }));
 builder.Services.AddSingleton<ComCalculationHostedService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ComCalculationHostedService>());
 ```
@@ -438,7 +589,7 @@ This pattern is useful when:
 
 ### Multiple different COM components in the same app
 
-`SingleThreadedApartmentTaskScheduler` is one reusable STA thread for the whole process. If you send every COM component through it, all calls will be serialized on that same STA thread.
+Each `SingleThreadedApartmentTaskScheduler` instance owns one reusable STA thread. If you send every COM component through the same instance, all calls will be serialized on that STA thread. If you need parallelism across components, create one scheduler instance per STA lane.
 
 When the components are unrelated and do not need to share the same long-lived STA-bound instance, prefer `SingleThreadedApartmentTask.RunAsync(...)` or `SingleThreadedApartmentTask.RunWithTimeoutAsync(...)`. Each call gets its own temporary STA thread, so different COM components can run independently.
 
@@ -543,17 +694,17 @@ Then keep using the `ComCalculationHostedService` / `SingleThreadedApartmentTask
 
 For a reusable COM instance:
 
-1. create it once in `StartAsync` on the scheduler thread with `Executor.Create(...)`;
+1. create it once in `StartAsync` on the injected scheduler instance with `Executor.Create(...)`;
 2. keep the returned `ComObjectHandle<T>` alive for the whole hosted-service lifetime;
 3. store the COM instance in a field;
-4. route every operation back through `SingleThreadedApartmentTaskScheduler.RunAsync(...)`;
+4. route every operation back through the same `ISingleThreadedApartmentTaskScheduler` instance via `_scheduler.RunAsync(...)`;
 5. release the handle in `StopAsync` with `Executor.Free(...)` on the same scheduler thread.
 
 The call path for each request then looks like this:
 
 ```csharp
 public Task<decimal> AddAsync(decimal left, decimal right, CancellationToken cancellationToken)
-    => SingleThreadedApartmentTaskScheduler.RunAsync(
+    => _scheduler.RunAsync(
         () =>
         {
             if (_calculator is null)
@@ -568,7 +719,7 @@ public Task<decimal> AddAsync(decimal left, decimal right, CancellationToken can
 
 #### If several different COM objects should each be instantiated only once
 
-If those COM objects can all live on the same STA thread, create them together in one hosted service with `Executor.Create(...)`, keep one `ComObjectHandle<T>` per object, and reuse the instances through `SingleThreadedApartmentTaskScheduler`.
+If those COM objects can all live on the same STA thread, create them together in one hosted service with `Executor.Create(...)`, keep one `ComObjectHandle<T>` per object, and reuse the instances through a single injected `ISingleThreadedApartmentTaskScheduler` instance.
 
 ```csharp
 private ComObjectHandle<LegacyCalculator.CalculatorClass>? _calculatorHandle;
@@ -578,7 +729,7 @@ private LegacyReporting.ReportGeneratorClass? _reportGenerator;
 
 public override async Task StartAsync(CancellationToken cancellationToken)
 {
-    await SingleThreadedApartmentTaskScheduler.RunAsync(
+    await _scheduler.RunAsync(
         () =>
         {
             var calculatorCreation = Executor.Create(
@@ -623,7 +774,7 @@ public override async Task StartAsync(CancellationToken cancellationToken)
 }
 
 public Task<decimal> AddAsync(decimal left, decimal right, CancellationToken cancellationToken)
-    => SingleThreadedApartmentTaskScheduler.RunAsync(
+    => _scheduler.RunAsync(
         () =>
         {
             if (_calculator is null)
@@ -636,7 +787,7 @@ public Task<decimal> AddAsync(decimal left, decimal right, CancellationToken can
         cancellationToken);
 
 public Task<string> BuildReportAsync(int reportId, CancellationToken cancellationToken)
-    => SingleThreadedApartmentTaskScheduler.RunAsync(
+    => _scheduler.RunAsync(
         () =>
         {
             if (_reportGenerator is null)
@@ -653,18 +804,21 @@ Release every handle in `StopAsync` on the same scheduler thread by calling `Exe
 
 This gives you one app-wide STA lane where multiple COM components are instantiated once and reused safely.
 
-If those reusable components must run in parallel, `SingleThreadedApartmentTaskScheduler` alone is not enough because it is a single global STA thread. In that case you need separate dedicated STA workers.
+If those reusable components must run in parallel, a single `SingleThreadedApartmentTaskScheduler` instance is not enough because it is one STA thread. In that case create multiple scheduler instances — one per STA lane — and route each COM component through its own instance (register them keyed in DI, or wrap them in per-component services).
 
 Use this mixed approach in one application:
 
-- use `SingleThreadedApartmentTaskScheduler` for a component that must stay alive on one dedicated STA thread across many requests;
+- use one `SingleThreadedApartmentTaskScheduler` instance for each component that must stay alive on a dedicated STA thread across many requests;
 - use `SingleThreadedApartmentTask` for one-off or isolated calls to other COM components;
 - keep all operations for a single STA-bound COM instance inside the same scheduled workflow.
 
 ### Periodic Task with Cancellation
 ```csharp
-public async Task RunPeriodicTaskAsync(CancellationToken ct) {
-    await SingleThreadedApartmentTaskScheduler.RunAsync((StaYield staYield) => {
+public async Task RunPeriodicTaskAsync(
+    ISingleThreadedApartmentTaskScheduler scheduler,
+    CancellationToken ct)
+{
+    await scheduler.RunAsync((StaYield staYield) => {
         while (!ct.IsCancellationRequested) {
             PerformWork();
 
@@ -677,9 +831,9 @@ public async Task RunPeriodicTaskAsync(CancellationToken ct) {
 
 ## 🏗️ Technical Details
 
-- **Frameworks**: .NET Standard 2.0, .NET 8.0-windows, .NET 9.0-windows, .NET 10.0-windows
+- **Frameworks**: .NET 10.0-windows, .NET 9.0-windows, .NET 8.0-windows, .NET Framework 4.8.1, 4.8, 4.7.2, 4.7.1, 4.7, 4.6.2
 - **Platform**: Windows only (uses Win32 APIs for message pumps and COM)
-- **P/Invoke**: Uses modern `LibraryImport` source generators on .NET 8+ for better performance
+- **P/Invoke**: Uses modern `LibraryImport` source generators on .NET 8+ and `DllImport` on .NET Framework targets
 - **Thread Safety**: All APIs are thread-safe
 - **Async/Await**: Full async/await support with proper ConfigureAwait usage
 
@@ -704,5 +858,82 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## ⚠️ Known Considerations
 
 - Windows-only library (relies on Win32 message pump and OLE APIs)
-- The `SingleThreadedApartmentTaskScheduler` creates a persistent background thread on first use
+- Each `SingleThreadedApartmentTaskScheduler` instance creates a persistent background STA thread; dispose the instance to stop it deterministically
 - STA threads have lower performance than MTA threads - use only when necessary (COM interop, clipboard, etc.)
+
+## 🔄 Migration Guide
+
+### From 2.x to 3.0
+
+`SingleThreadedApartmentTaskScheduler` has been converted from a **static class** into an **instance class** that implements `ISingleThreadedApartmentTaskScheduler` and `IDisposable`. Each instance owns its own STA thread, which fixes several long-standing limitations (no deterministic shutdown, no isolation between tests, no way to run parallel STA lanes, no DI story).
+
+This is a **breaking change**. The static `SingleThreadedApartmentTaskScheduler.RunAsync(...)` / `Shutdown()` members no longer exist; callers must now create an instance.
+
+#### Before (2.x)
+
+```csharp
+var task1 = SingleThreadedApartmentTaskScheduler.RunAsync(() => ComOperation1(), ct);
+var task2 = SingleThreadedApartmentTaskScheduler.RunAsync(() => ComOperation2(), ct);
+await Task.WhenAll(task1, task2);
+
+SingleThreadedApartmentTaskScheduler.Shutdown();
+```
+
+#### After (3.0)
+
+```csharp
+using var scheduler = new SingleThreadedApartmentTaskScheduler();
+
+var task1 = scheduler.RunAsync(() => ComOperation1(), ct);
+var task2 = scheduler.RunAsync(() => ComOperation2(), ct);
+await Task.WhenAll(task1, task2);
+
+// Disposing the instance shuts the STA thread down deterministically
+// and cancels any queued-but-not-yet-executed items.
+```
+
+#### Recommended pattern: register once as a singleton
+
+For application-wide use, register one scheduler per STA lane as a DI singleton. Use `SingleThreadedApartmentTaskSchedulerOptions` to configure it — the constructor takes an options object so there is no ambiguous `string` parameter for the container to resolve:
+
+```csharp
+builder.Services.AddSingleton<ISingleThreadedApartmentTaskScheduler>(
+    _ => new SingleThreadedApartmentTaskScheduler(
+        new SingleThreadedApartmentTaskSchedulerOptions { ThreadName = "App-STA" }));
+```
+
+Then inject `ISingleThreadedApartmentTaskScheduler` wherever you previously called the static API. The DI container will dispose the scheduler on application shutdown.
+
+#### Quick fix via a shared static (not recommended, but source-minimal)
+
+If you want to postpone the full migration, wrap one instance behind your own static helper:
+
+```csharp
+internal static class AppSta
+{
+    public static ISingleThreadedApartmentTaskScheduler Default { get; }
+        = new SingleThreadedApartmentTaskScheduler(
+            new SingleThreadedApartmentTaskSchedulerOptions { ThreadName = "App-STA" });
+}
+
+// Call sites:
+await AppSta.Default.RunAsync(() => ComOperation(), ct);
+```
+
+This restores the old call-site ergonomics but also retains the old drawback of a single process-wide STA thread that never shuts down before process exit.
+
+## 📋 Changelog
+
+### 3.0.0 (breaking)
+
+- **Breaking:** `SingleThreadedApartmentTaskScheduler` is now an instance class (previously `static`). See the Migration Guide above.
+- Added `ISingleThreadedApartmentTaskScheduler` interface to enable dependency injection and mocking.
+- Added `IDisposable` support — disposing the scheduler joins its STA thread, cancels any pending queued items, and releases the underlying synchronization handles.
+- Added `ObjectDisposedException` thrown from `RunAsync` after disposal.
+- Added `SingleThreadedApartmentTaskSchedulerOptions` configuration class (currently exposes `ThreadName`). The constructor takes an options instance, which plays nicely with DI and `Microsoft.Extensions.Options`.
+- Surface OLE initialization failure to callers instead of silently leaving the thread dead: subsequent `RunAsync` calls fault with an `InvalidOperationException` containing the HRESULT.
+- Multiple scheduler instances can now coexist, each with its own STA thread (enables per-component STA lanes and isolated unit tests).
+
+### 2.x
+
+- `MutexHelper`, `SingleThreadedApartmentTask`, `TaskExtension`, and `StaYield` hardened against cancellation-vs-timeout races and exception wrapping (see ADR 0001).

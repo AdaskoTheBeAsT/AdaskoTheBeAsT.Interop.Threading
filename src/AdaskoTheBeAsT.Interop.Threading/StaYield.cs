@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 
 namespace AdaskoTheBeAsT.Interop.Threading;
@@ -10,7 +11,8 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 /// <param name="intervalMs">The minimum interval, in milliseconds, between automatic message-pump checks in <see cref="Occasionally"/>.</param>
 public sealed class StaYield(int intervalMs = 15)
 {
-    private int _last = Environment.TickCount;
+    private readonly long _intervalTicks = MillisecondsToTicks(Math.Max(1, intervalMs));
+    private long _lastPumpTicks = Stopwatch.GetTimestamp();
 
     /// <summary>
     /// Pumps pending Windows messages when enough time has elapsed since the previous pump.
@@ -18,11 +20,11 @@ public sealed class StaYield(int intervalMs = 15)
     /// </summary>
     public void Occasionally()
     {
-        var now = Environment.TickCount;
-        if (unchecked(now - _last) >= intervalMs)
+        var now = Stopwatch.GetTimestamp();
+        if (now - _lastPumpTicks >= _intervalTicks)
         {
             NativeMethods.PumpPendingMessages();
-            _last = now;
+            _lastPumpTicks = now;
         }
     }
 
@@ -52,12 +54,58 @@ public sealed class StaYield(int intervalMs = 15)
     /// <param name="ms">The number of milliseconds to wait.</param>
     public void Sleep(int ms)
     {
-        var start = Environment.TickCount;
-        while (unchecked(Environment.TickCount - start) < ms)
+        if (ms <= 0)
         {
-            Occasionally();
-            var remaining = ms - unchecked(Environment.TickCount - start);
-            Thread.Sleep(Math.Min(10, Math.Max(1, remaining)));
+            return;
         }
+
+        var targetTicks = Stopwatch.GetTimestamp() + MillisecondsToTicks(ms);
+        while (true)
+        {
+            var now = Stopwatch.GetTimestamp();
+            var remainingTicks = targetTicks - now;
+            if (remainingTicks <= 0)
+            {
+                return;
+            }
+
+            Occasionally();
+
+            // Convert remaining ticks to milliseconds using overflow-safe math.
+            // We only need to know whether the remainder is >= 10 ms (in which
+            // case we sleep a fixed 10 ms) or a small tail (sleep 1..9 ms), so
+            // avoid the long multiplication entirely for the common "far from
+            // deadline" case that would otherwise overflow on long waits.
+            var tenMsTicks = MillisecondsToTicks(10);
+            int sleepMs;
+            if (remainingTicks >= tenMsTicks)
+            {
+                sleepMs = 10;
+            }
+            else
+            {
+                var remainingMsDouble = (double)remainingTicks * 1000.0 / Stopwatch.Frequency;
+                sleepMs = remainingMsDouble >= 10.0
+                    ? 10
+                    : Math.Max(1, (int)remainingMsDouble);
+            }
+
+            Thread.Sleep(sleepMs);
+        }
+    }
+
+    // Converts milliseconds to Stopwatch ticks with full precision and clamps the
+    // result to at least one tick so callers never get a "zero-interval" threshold
+    // (which would fire on every call) on platforms where Stopwatch.Frequency is
+    // very low.
+    private static long MillisecondsToTicks(int ms)
+    {
+        if (ms <= 0)
+        {
+            return 1L;
+        }
+
+        var ticks = (Stopwatch.Frequency * ms) / 1000L;
+        return ticks < 1L ? 1L : ticks;
     }
 }

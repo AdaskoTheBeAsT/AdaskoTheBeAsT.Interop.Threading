@@ -45,10 +45,36 @@ internal sealed class StaWorkItem<T> : IStaWorkItem
             return;
         }
 
+        // Re-check just before invoking the delegate: the token could have been canceled
+        // between dequeue and here; bail out early rather than running user code.
+        if (_cancellationToken.IsCancellationRequested)
+        {
+            _taskCompletionSource.TrySetCanceled(_cancellationToken);
+            Interlocked.Exchange(ref _state, CanceledState);
+            _cancellationRegistration.Dispose();
+            return;
+        }
+
         try
         {
             var result = _work();
-            _taskCompletionSource.TrySetResult(result);
+
+            // If cancellation was requested while the work was running, surface it
+            // as a cancellation rather than a successful result (cooperative model:
+            // only kicks in if the user code itself did not throw OperationCanceledException).
+            if (_cancellationToken.IsCancellationRequested)
+            {
+                _taskCompletionSource.TrySetCanceled(_cancellationToken);
+            }
+            else
+            {
+                _taskCompletionSource.TrySetResult(result);
+            }
+        }
+        catch (OperationCanceledException oce) when (oce.CancellationToken == _cancellationToken
+                                                     || _cancellationToken.IsCancellationRequested)
+        {
+            _taskCompletionSource.TrySetCanceled(_cancellationToken);
         }
         catch (Exception ex)
         {
@@ -56,7 +82,7 @@ internal sealed class StaWorkItem<T> : IStaWorkItem
         }
         finally
         {
-            Interlocked.Exchange(ref _state, CompletedState);
+            Interlocked.CompareExchange(ref _state, CompletedState, ExecutingState);
             _cancellationRegistration.Dispose();
         }
     }
@@ -65,7 +91,10 @@ internal sealed class StaWorkItem<T> : IStaWorkItem
     {
         if (Interlocked.CompareExchange(ref _state, CanceledState, PendingState) == PendingState)
         {
-            _taskCompletionSource.TrySetCanceled();
+            // Preserve the associated cancellation token so callers observing
+            // the resulting TaskCanceledException see the same token here and
+            // from OnCanceled()/Execute(), giving consistent cancellation diagnostics.
+            _taskCompletionSource.TrySetCanceled(_cancellationToken);
         }
 
         _cancellationRegistration.Dispose();
@@ -73,6 +102,8 @@ internal sealed class StaWorkItem<T> : IStaWorkItem
 
     private void OnCanceled()
     {
+        // Only cancel if the work has not yet started executing. Once it is running,
+        // the work item cooperatively observes the token via _cancellationToken.IsCancellationRequested.
         if (Interlocked.CompareExchange(ref _state, CanceledState, PendingState) == PendingState)
         {
             _taskCompletionSource.TrySetCanceled(_cancellationToken);
