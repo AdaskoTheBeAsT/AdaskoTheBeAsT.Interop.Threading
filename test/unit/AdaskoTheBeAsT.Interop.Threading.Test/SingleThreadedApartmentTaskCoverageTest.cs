@@ -114,7 +114,11 @@ public class SingleThreadedApartmentTaskCoverageTest
                 TimeSpan.FromMilliseconds(200),
                 () =>
                 {
+#if NET8_0_OR_GREATER
+                    release.Wait(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+#else
                     release.Wait(TimeSpan.FromSeconds(30));
+#endif
                     return 1;
                 },
                 CancellationToken.None);
