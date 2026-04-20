@@ -292,6 +292,14 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
 #pragma warning restore CA1031
     }
 
+    // RCS1229 is suppressed because the infinite-timeout branch deliberately
+    // returns the work item's Task directly without an async state machine -
+    // that is the cheap, allocation-free happy path. The finite-timeout branch
+    // delegates to EnqueueWithCooperativeTimeoutAsync which is properly async.
+    // The "Async" suffix on this router reflects the Task-returning contract
+    // that both branches share, which is consistent with the rest of the
+    // surface (RunAsync -> EnqueueAndOptionallyTimeoutAsync).
+#pragma warning disable RCS1229
     private Task<T?> EnqueueAndOptionallyTimeoutAsync<T>(
         Func<T?> func,
         TimeSpan timeout,
@@ -321,6 +329,7 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
         // resulting cancellation to TimeoutException at the caller's await.
         return EnqueueWithCooperativeTimeoutAsync(func, timeout, cancellationToken);
     }
+#pragma warning restore RCS1229
 
     // VSTHRD200: this helper is async by design to orchestrate the timeout CTS,
     // so the Async suffix is correct here and RCS1229 is happy.

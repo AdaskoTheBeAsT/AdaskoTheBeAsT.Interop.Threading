@@ -261,10 +261,7 @@ public class SingleThreadedApartmentTaskSchedulerTest
         // so this test exercises the mapping of a user-raised OCE to a canceled task.
 #pragma warning disable VSTHRD003
         var task = scheduler.RunAsync<int>(
-            () =>
-            {
-                throw new OperationCanceledException();
-            },
+            () => throw new OperationCanceledException(),
             CancellationToken.None);
 
         var act = async () => await task;
