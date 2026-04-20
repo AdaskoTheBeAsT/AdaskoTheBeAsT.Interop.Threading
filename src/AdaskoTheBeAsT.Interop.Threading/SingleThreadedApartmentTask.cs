@@ -28,10 +28,14 @@ public static class SingleThreadedApartmentTask
         Func<StaYield, T> func,
         CancellationToken cancellationToken)
     {
+#if NET6_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(func);
+#else
         if (func == null)
         {
             throw new ArgumentNullException(nameof(func));
         }
+#endif
 
         return RunAsync(() => func(new StaYield()), cancellationToken);
     }
@@ -51,10 +55,14 @@ public static class SingleThreadedApartmentTask
         Func<T> func,
         CancellationToken cancellationToken)
     {
+#if NET6_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(func);
+#else
         if (func == null)
         {
             throw new ArgumentNullException(nameof(func));
         }
+#endif
 
         if (cancellationToken.IsCancellationRequested)
         {

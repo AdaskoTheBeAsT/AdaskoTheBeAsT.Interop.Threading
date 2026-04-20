@@ -33,7 +33,7 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     public static extern uint MsgWaitForMultipleObjects(
         uint nCount,
-        IntPtr[] pHandles,
+        [In] IntPtr[] pHandles,
         bool bWaitAll,
         uint dwMilliseconds,
         uint dwWakeMask);
@@ -98,6 +98,11 @@ internal static partial class NativeMethods
     [LibraryImport("ole32.dll")]
     public static partial void OleUninitialize();
 
+#pragma warning disable SYSLIB1092 // The usage of 'LibraryImportAttribute' does not follow recommendations.
+    // SYSLIB1092: [In]/[Out] attributes on array parameters are not supported
+    // by the LibraryImport source generator and are ignored. The default
+    // marshalling behavior (pinned-pass-by-reference) is what this native
+    // API requires, so simply omit the attribute.
     [LibraryImport("user32.dll", SetLastError = true)]
     public static partial uint MsgWaitForMultipleObjects(
         uint nCount,
@@ -105,6 +110,7 @@ internal static partial class NativeMethods
         [MarshalAs(UnmanagedType.Bool)] bool bWaitAll,
         uint dwMilliseconds,
         uint dwWakeMask);
+#pragma warning restore SYSLIB1092 // The usage of 'LibraryImportAttribute' does not follow recommendations.
 
     [LibraryImport("user32.dll", EntryPoint = "PeekMessageW")]
     [return: MarshalAs(UnmanagedType.Bool)]

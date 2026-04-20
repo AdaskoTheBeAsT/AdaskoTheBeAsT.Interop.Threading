@@ -77,10 +77,14 @@ public static class MutexHelper
     public static T RunInMutex<T>(string name, TimeSpan timeout, bool isGlobal, Func<T> func)
 #pragma warning restore MA0051
     {
+#if NET6_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(func);
+#else
         if (func == null)
         {
             throw new ArgumentNullException(nameof(func));
         }
+#endif
 
         var mutexName = isGlobal ? $"Global\\{name}" : name;
 

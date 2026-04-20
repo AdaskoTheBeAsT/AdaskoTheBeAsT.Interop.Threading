@@ -42,10 +42,14 @@ public sealed class StaYield(int intervalMs = 15)
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="condition"/> is <see langword="null"/>.</exception>
     public void SpinUntil(Func<bool> condition, int checkEveryMs = 10)
     {
+#if NET6_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(condition);
+#else
         if (condition == null)
         {
             throw new ArgumentNullException(nameof(condition));
         }
+#endif
 
         while (!condition())
         {
