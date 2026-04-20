@@ -88,20 +88,27 @@ public class TaskExtensionCoverageTest
     }
 
     [Fact]
-    public async Task TimeoutAfterAsync_CancellationTakesPriorityOverTimeoutAsync()
+    public async Task TimeoutAfterAsync_CallerTokenCanceled_SurfacesOperationCanceledAsync()
     {
-        // When the caller's token cancels AFTER the timeout fires but BEFORE
-        // the final throw, the method must surface OperationCanceledException
-        // (not TimeoutException). Exercises the cancellationToken
-        // .ThrowIfCancellationRequested() gate inside TimeoutAfterAsync.
+        // Pre-cancel the caller's token so the internal Task.Delay completes
+        // synchronously as canceled (Task.WhenAny's fast path), driving the
+        // method into the timeout-wins branch where the subsequent
+        // cancellationToken.ThrowIfCancellationRequested() gate must surface
+        // OperationCanceledException (not TimeoutException). A generous 10s
+        // timeout guarantees the cancellation signal is the ONLY thing that
+        // can terminate the Task.Delay first, making this deterministic on
+        // CI runners with unpredictable scheduling jitter.
         using var cts = new CancellationTokenSource();
         var never = new TaskCompletionSource<int>();
-
-        cts.CancelAfter(20);
+#if NET8_0_OR_GREATER
+        await cts.CancelAsync();
+#else
+        cts.Cancel();
+#endif
 
 #pragma warning disable VSTHRD003
         var act = async () => await never.Task.TimeoutAfterAsync(
-            TimeSpan.FromMilliseconds(25),
+            TimeSpan.FromSeconds(10),
             cts.Token);
 #pragma warning restore VSTHRD003
 
