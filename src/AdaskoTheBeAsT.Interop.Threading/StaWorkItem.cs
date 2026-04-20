@@ -1,9 +1,15 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+#if NET8_0_OR_GREATER
+using System.Runtime.Versioning;
+#endif
 
 namespace AdaskoTheBeAsT.Interop.Threading;
 
+#if NET8_0_OR_GREATER
+[SupportedOSPlatform("windows")]
+#endif
 internal sealed class StaWorkItem<T> : IStaWorkItem
 {
     private const int PendingState = 0;

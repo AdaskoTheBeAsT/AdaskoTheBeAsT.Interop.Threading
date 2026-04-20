@@ -4,6 +4,9 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
+#if NET8_0_OR_GREATER
+using System.Runtime.Versioning;
+#endif
 
 namespace AdaskoTheBeAsT.Interop.Threading;
 
@@ -12,6 +15,9 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 /// Each instance owns its own STA thread and serializes all queued work items onto it.
 /// Dispose the instance to stop the thread deterministically.
 /// </summary>
+#if NET8_0_OR_GREATER
+[SupportedOSPlatform("windows")]
+#endif
 public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartmentTaskScheduler
 {
     private readonly ConcurrentQueue<IStaWorkItem> _queue = new();

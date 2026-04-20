@@ -1,5 +1,8 @@
 using System;
 using System.Runtime.InteropServices;
+#if NET8_0_OR_GREATER
+using System.Runtime.Versioning;
+#endif
 
 namespace AdaskoTheBeAsT.Interop.Threading;
 
@@ -72,6 +75,7 @@ internal static class NativeMethods
 }
 #endif
 #if NET8_0_OR_GREATER
+[SupportedOSPlatform("windows")]
 internal static partial class NativeMethods
 {
     public const uint INFINITE = unchecked((uint)-1);

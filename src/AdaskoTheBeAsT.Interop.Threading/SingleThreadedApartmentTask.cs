@@ -1,6 +1,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+#if NET8_0_OR_GREATER
+using System.Runtime.Versioning;
+#endif
 
 namespace AdaskoTheBeAsT.Interop.Threading;
 
@@ -8,6 +11,9 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 /// Runs delegates on a dedicated background STA thread.
 /// Each call creates a new thread, executes the supplied delegate there, and pumps any remaining messages before the thread exits.
 /// </summary>
+#if NET8_0_OR_GREATER
+[SupportedOSPlatform("windows")]
+#endif
 public static class SingleThreadedApartmentTask
 {
     /// <summary>

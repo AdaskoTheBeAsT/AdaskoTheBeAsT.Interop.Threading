@@ -4,6 +4,9 @@ using System.Reflection;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Threading;
+#if NET8_0_OR_GREATER
+using System.Runtime.Versioning;
+#endif
 
 namespace AdaskoTheBeAsT.Interop.Threading;
 
@@ -11,6 +14,9 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 /// Executes delegates while holding a named operating-system mutex.
 /// This is useful when work must be serialized across threads or processes.
 /// </summary>
+#if NET8_0_OR_GREATER
+[SupportedOSPlatform("windows")]
+#endif
 public static class MutexHelper
 {
     // Computed once per process. The ACL (Everyone: FullControl) is invariant, so the

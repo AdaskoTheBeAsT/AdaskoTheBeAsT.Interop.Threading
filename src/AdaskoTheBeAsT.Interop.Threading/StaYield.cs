@@ -1,6 +1,9 @@
 using System;
 using System.Diagnostics;
 using System.Threading;
+#if NET8_0_OR_GREATER
+using System.Runtime.Versioning;
+#endif
 
 namespace AdaskoTheBeAsT.Interop.Threading;
 
@@ -9,6 +12,9 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 /// Use these helpers to keep the COM or Windows message pump responsive while work is in progress.
 /// </summary>
 /// <param name="intervalMs">The minimum interval, in milliseconds, between automatic message-pump checks in <see cref="Occasionally"/>.</param>
+#if NET8_0_OR_GREATER
+[SupportedOSPlatform("windows")]
+#endif
 public sealed class StaYield(int intervalMs = 15)
 {
     private readonly long _intervalTicks = MillisecondsToTicks(Math.Max(1, intervalMs));

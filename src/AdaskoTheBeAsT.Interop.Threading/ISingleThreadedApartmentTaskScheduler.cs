@@ -1,6 +1,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+#if NET8_0_OR_GREATER
+using System.Runtime.Versioning;
+#endif
 
 namespace AdaskoTheBeAsT.Interop.Threading;
 
@@ -8,6 +11,9 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 /// Schedules delegates onto a single reusable background STA thread with an OLE message loop.
 /// All queued work items are serialized on the same STA thread for the lifetime of the instance.
 /// </summary>
+#if NET8_0_OR_GREATER
+[SupportedOSPlatform("windows")]
+#endif
 public interface ISingleThreadedApartmentTaskScheduler : IDisposable
 {
     /// <summary>
