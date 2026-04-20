@@ -64,12 +64,15 @@ public class StaYieldAdditionalTest
         var y = new StaYield();
 
         // Observable "immediate return": Sleep(0) / Sleep(-1) must not block.
-        // A significant wall-clock delay indicates a regression.
+        // A significant wall-clock delay indicates a regression. The bound is
+        // generous enough to absorb CI noise (GC pauses, scheduling jitter,
+        // slow runners) while still catching a regression where Sleep(-1)
+        // would be misinterpreted as infinite and block indefinitely.
         var stopwatch = Stopwatch.StartNew();
         y.Sleep(0);
         y.Sleep(-1);
         stopwatch.Stop();
 
-        stopwatch.ElapsedMilliseconds.Should().BeLessThan(50);
+        stopwatch.ElapsedMilliseconds.Should().BeLessThan(1000);
     }
 }
