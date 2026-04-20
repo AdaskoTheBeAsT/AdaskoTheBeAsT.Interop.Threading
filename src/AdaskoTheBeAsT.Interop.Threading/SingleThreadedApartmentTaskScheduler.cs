@@ -619,19 +619,17 @@ public sealed class SingleThreadedApartmentTaskScheduler : ISingleThreadedApartm
             if (result == NativeMethods.WAIT_OBJECT_0)
             {
                 ProcessQueuedItems();
+                continue;
             }
-            else if (result == NativeMethods.WAIT_OBJECT_0 + 1)
-            {
-                break;
-            }
-            else if (result == NativeMethods.WAIT_OBJECT_0 + handles.Length)
+
+            if (result == NativeMethods.WAIT_OBJECT_0 + handles.Length)
             {
                 NativeMethods.PumpPendingMessages();
+                continue;
             }
-            else
-            {
-                break;
-            }
+
+            // Shutdown signal (WAIT_OBJECT_0 + 1) or any unexpected wait result: leave the loop.
+            break;
         }
 
         DrainQueueAsCanceled();

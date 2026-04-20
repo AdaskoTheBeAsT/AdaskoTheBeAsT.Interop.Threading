@@ -14,8 +14,7 @@ internal static class NativeMethods
 
     public static void PumpPendingMessages()
     {
-        MSG msg;
-        while (PeekMessage(out msg, IntPtr.Zero, 0, 0, PM_REMOVE))
+        while (PeekMessage(out var msg, IntPtr.Zero, 0, 0, PM_REMOVE))
         {
             TranslateMessage(ref msg);
             DispatchMessage(ref msg);
@@ -55,20 +54,20 @@ internal static class NativeMethods
     [StructLayout(LayoutKind.Sequential)]
     private struct MSG
     {
-        public IntPtr hwnd;
-        public uint message;
-        public UIntPtr wParam;
-        public IntPtr lParam;
-        public uint time;
-        public POINT pt;
-        public uint lPrivate;
+        public readonly IntPtr hwnd;
+        public readonly uint message;
+        public readonly UIntPtr wParam;
+        public readonly IntPtr lParam;
+        public readonly uint time;
+        public readonly POINT pt;
+        public readonly uint lPrivate;
     }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT
     {
-        public int x;
-        public int y;
+        public readonly int x;
+        public readonly int y;
     }
 }
 #endif
@@ -82,8 +81,7 @@ internal static partial class NativeMethods
 
     public static void PumpPendingMessages()
     {
-        MSG msg;
-        while (PeekMessage(out msg, IntPtr.Zero, 0, 0, PM_REMOVE))
+        while (PeekMessage(out var msg, IntPtr.Zero, 0, 0, PM_REMOVE))
         {
             TranslateMessage(ref msg);
             DispatchMessage(ref msg);
@@ -123,20 +121,20 @@ internal static partial class NativeMethods
     [StructLayout(LayoutKind.Sequential)]
     private struct MSG
     {
-        public IntPtr hwnd;
-        public uint message;
-        public UIntPtr wParam;
-        public IntPtr lParam;
-        public uint time;
-        public POINT pt;
-        public uint lPrivate;
+        public readonly IntPtr hwnd;
+        public readonly uint message;
+        public readonly UIntPtr wParam;
+        public readonly IntPtr lParam;
+        public readonly uint time;
+        public readonly POINT pt;
+        public readonly uint lPrivate;
     }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT
     {
-        public int x;
-        public int y;
+        public readonly int x;
+        public readonly int y;
     }
 }
 #endif

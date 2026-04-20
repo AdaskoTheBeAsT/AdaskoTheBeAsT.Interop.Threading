@@ -9,7 +9,7 @@ namespace AdaskoTheBeAsT.Interop.Threading.Test;
 public class SingleThreadedApartmentTaskTest
 {
     [Fact]
-    public async Task RunAsync_ReturnsResult_OnStaThread()
+    public async Task RunAsync_ReturnsResult_OnStaThreadAsync()
     {
         var result = await SingleThreadedApartmentTask.RunAsync(
             () =>
@@ -23,7 +23,7 @@ public class SingleThreadedApartmentTaskTest
     }
 
     [Fact]
-    public Task RunAsync_PropagatesException()
+    public Task RunAsync_PropagatesExceptionAsync()
     {
         Func<Task> act = async () =>
             await SingleThreadedApartmentTask.RunAsync<object?>(
