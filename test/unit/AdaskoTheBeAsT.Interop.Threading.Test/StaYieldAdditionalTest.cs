@@ -1,10 +1,10 @@
 using System;
 using System.Diagnostics;
-using AwesomeAssertions;
-using Xunit;
 #if NET8_0_OR_GREATER
 using System.Runtime.Versioning;
 #endif
+using AwesomeAssertions;
+using Xunit;
 
 namespace AdaskoTheBeAsT.Interop.Threading.Test;
 

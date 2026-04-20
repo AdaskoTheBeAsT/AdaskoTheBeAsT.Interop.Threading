@@ -1,11 +1,11 @@
 using System;
+#if NET8_0_OR_GREATER
+using System.Runtime.Versioning;
+#endif
 using System.Threading;
 using System.Threading.Tasks;
 using AwesomeAssertions;
 using Xunit;
-#if NET8_0_OR_GREATER
-using System.Runtime.Versioning;
-#endif
 
 namespace AdaskoTheBeAsT.Interop.Threading.Test;
 
