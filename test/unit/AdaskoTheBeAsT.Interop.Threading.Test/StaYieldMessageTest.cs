@@ -24,7 +24,7 @@ public class StaYieldMessageTest
             () =>
             {
                 NativeMethods.PostQuitMessage(exitCode);
-                new StaYield(1).Sleep(25);
+                new StaYield(1).Sleep(25, TestContext.Current.CancellationToken);
 
                 var found = NativeMethods.PeekMessage(out var message, IntPtr.Zero, 0, 0, 1);
                 found.Should().BeTrue();
@@ -56,14 +56,14 @@ public class StaYieldMessageTest
         [StructLayout(LayoutKind.Sequential)]
         public struct Message
         {
-            public IntPtr Window;
-            public uint Id;
-            public UIntPtr WParam;
-            public IntPtr LParam;
-            public uint Time;
-            public int X;
-            public int Y;
-            public uint Private;
+            public readonly IntPtr Window;
+            public readonly uint Id;
+            public readonly UIntPtr WParam;
+            public readonly IntPtr LParam;
+            public readonly uint Time;
+            public readonly int X;
+            public readonly int Y;
+            public readonly uint Private;
         }
     }
 }

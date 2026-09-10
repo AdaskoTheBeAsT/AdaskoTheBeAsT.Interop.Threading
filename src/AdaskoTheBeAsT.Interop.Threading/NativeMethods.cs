@@ -9,8 +9,10 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 #pragma warning disable S101
 #if NET8_0_OR_GREATER
 [SupportedOSPlatform("windows")]
-#endif
 internal static partial class NativeMethods
+#else
+internal static class NativeMethods
+#endif
 {
     public const uint INFINITE = unchecked((uint)-1);
     public const uint QS_ALLINPUT = 0x04FF;
@@ -62,7 +64,7 @@ internal static partial class NativeMethods
 
     [LibraryImport("user32.dll", SetLastError = true)]
     private static partial uint MsgWaitForMultipleObjectsEx(
-        uint nCount, IntPtr[] pHandles, uint dwMilliseconds, uint dwWakeMask, uint dwFlags);
+        uint nCount, [In] IntPtr[] pHandles, uint dwMilliseconds, uint dwWakeMask, uint dwFlags);
 
     [LibraryImport("user32.dll", EntryPoint = "PeekMessageW")]
     [return: MarshalAs(UnmanagedType.Bool)]

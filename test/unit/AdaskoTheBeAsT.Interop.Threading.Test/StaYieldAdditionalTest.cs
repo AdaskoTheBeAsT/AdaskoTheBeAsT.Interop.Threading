@@ -42,7 +42,7 @@ public class StaYieldAdditionalTest
     {
         var y = new StaYield();
 
-        var act = () => y.SpinUntil(null!, 1);
+        var act = () => y.SpinUntil(null!, TestContext.Current.CancellationToken, 1);
 
         act.Should().Throw<ArgumentNullException>();
     }
@@ -58,7 +58,7 @@ public class StaYieldAdditionalTest
         // (500 ms) so that a regressing implementation that ran one extra
         // iteration would be detected.
         var stopwatch = Stopwatch.StartNew();
-        y.SpinUntil(() => true, checkEveryMs: 500);
+        y.SpinUntil(() => true, TestContext.Current.CancellationToken, checkEveryMs: 500);
         stopwatch.Stop();
 
         stopwatch.ElapsedMilliseconds.Should().BeLessThan(250);
@@ -88,10 +88,10 @@ public class StaYieldAdditionalTest
         // slow runners) while still catching a regression where Sleep(-1)
         // would be misinterpreted as infinite and block indefinitely.
         var stopwatch = Stopwatch.StartNew();
-#pragma warning disable xUnit1051 // Preserve the legacy Sleep(ms <= 0) contract under test.
+#pragma warning disable xUnit1051, MA0040 // Preserve the legacy Sleep(ms <= 0) contract under test.
         y.Sleep(0);
         y.Sleep(-1);
-#pragma warning restore xUnit1051
+#pragma warning restore xUnit1051, MA0040
         stopwatch.Stop();
 
         stopwatch.ElapsedMilliseconds.Should().BeLessThan(1000);

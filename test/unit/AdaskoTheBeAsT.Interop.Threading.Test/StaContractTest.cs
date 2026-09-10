@@ -27,6 +27,7 @@ public class StaContractTest
                 invoked = true;
                 return true;
             },
+            TestContext.Current.CancellationToken,
             checkEveryMs: -1);
         act.Should().Throw<ArgumentOutOfRangeException>();
         invoked.Should().BeFalse();

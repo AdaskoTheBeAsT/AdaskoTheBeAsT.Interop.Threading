@@ -37,7 +37,7 @@ public static class TaskExtension
 
         return task.IsCompleted || (timeout == Timeout.InfiniteTimeSpan && !cancellationToken.CanBeCanceled)
             ? task
-            : TaskWait.Start(task, timeout, cancellationToken, static source => ((Task<TResult>)source).GetAwaiter().GetResult());
+            : TaskWait.StartAsync(task, timeout, static source => ((Task<TResult>)source).GetAwaiter().GetResult(), onWaitAbandoned: null, cancellationToken);
     }
 
     /// <summary>
@@ -61,7 +61,7 @@ public static class TaskExtension
 
         return task.IsCompleted || (timeout == Timeout.InfiniteTimeSpan && !cancellationToken.CanBeCanceled)
             ? task
-            : TaskWait.Start(task, timeout, cancellationToken, static _ => true);
+            : TaskWait.StartAsync(task, timeout, static _ => true, onWaitAbandoned: null, cancellationToken);
     }
 
     private static void Validate(Task task, TimeSpan timeout)

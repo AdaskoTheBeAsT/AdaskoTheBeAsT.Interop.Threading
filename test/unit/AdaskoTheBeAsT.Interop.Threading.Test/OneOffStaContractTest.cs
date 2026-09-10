@@ -26,8 +26,8 @@ public class OneOffStaContractTest
                 platform.Record("delegate");
                 return 42;
             },
-            CancellationToken.None,
-            platform);
+            platform,
+            CancellationToken.None);
         (await task.TimeoutAfterAsync(TimeSpan.FromSeconds(5), CancellationToken.None)).Should().Be(42);
         platform.Calls.Should().Equal("initialize", "delegate", "pump", "uninitialize");
         platform.Threads.Should().OnlyContain(id => id == platform.Threads[0]);
@@ -38,7 +38,7 @@ public class OneOffStaContractTest
     {
         var original = new InvalidOperationException("delegate failure");
         var platform = new RecordingPlatform { CleanupFailure = new InvalidOperationException("cleanup failure") };
-        var task = SingleThreadedApartmentTask.RunAsync<int>(() => throw original, CancellationToken.None, platform);
+        var task = SingleThreadedApartmentTask.RunAsync<int>(() => throw original, platform, CancellationToken.None);
         (await Record.ExceptionAsync(async () => await task)).Should().BeSameAs(original);
         platform.Calls.Should().Equal("initialize", "pump", "uninitialize");
     }
@@ -54,7 +54,7 @@ public class OneOffStaContractTest
             CleanupFailure = failUninitialize ? null : original,
             UninitializeFailure = failUninitialize ? original : null,
         };
-        var task = SingleThreadedApartmentTask.RunAsync(() => 42, CancellationToken.None, platform);
+        var task = SingleThreadedApartmentTask.RunAsync(() => 42, platform, CancellationToken.None);
         (await Record.ExceptionAsync(async () => await task)).Should().BeSameAs(original);
         task.IsFaulted.Should().BeTrue();
         platform.Calls.Should().Equal("initialize", "pump", "uninitialize");
@@ -66,7 +66,7 @@ public class OneOffStaContractTest
         var original = new InvalidOperationException("initialization failure");
         var platform = new RecordingPlatform { InitializationFailure = original };
         var invoked = false;
-        var task = SingleThreadedApartmentTask.RunAsync(() => invoked = true, CancellationToken.None, platform);
+        var task = SingleThreadedApartmentTask.RunAsync(() => invoked = true, platform, CancellationToken.None);
         (await Record.ExceptionAsync(async () => await task)).Should().BeSameAs(original);
         invoked.Should().BeFalse();
         platform.Calls.Should().Equal("initialize");
@@ -83,9 +83,9 @@ public class OneOffStaContractTest
 
     private sealed class RecordingPlatform : StaPlatform
     {
-        public IList<string> Calls { get; } = new List<string>();
+        public List<string> Calls { get; } = [];
 
-        public IList<int> Threads { get; } = new List<int>();
+        public List<int> Threads { get; } = [];
 
         public Exception? InitializationFailure { get; set; }
 
@@ -128,7 +128,7 @@ public class OneOffStaContractTest
         public void Record(string call)
         {
             Calls.Add(call);
-            Threads.Add(Thread.CurrentThread.ManagedThreadId);
+            Threads.Add(Environment.CurrentManagedThreadId);
             Thread.CurrentThread.GetApartmentState().Should().Be(ApartmentState.STA);
         }
     }

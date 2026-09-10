@@ -23,11 +23,7 @@ internal sealed class MessageWindow : IDisposable
     public MessageWindow()
     {
         _procedure = Dispatch;
-        var windowClass = new WindowClass
-        {
-            ClassName = _className,
-            Procedure = Marshal.GetFunctionPointerForDelegate(_procedure),
-        };
+        var windowClass = new WindowClass(_className, Marshal.GetFunctionPointerForDelegate(_procedure));
         if (NativeMethods.RegisterClass(ref windowClass) == 0)
         {
             throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -82,18 +78,18 @@ internal sealed class MessageWindow : IDisposable
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct WindowClass
+    private struct WindowClass(string className, IntPtr procedure)
     {
-        public uint Style;
-        public IntPtr Procedure;
-        public int ClassExtra;
-        public int WindowExtra;
-        public IntPtr Instance;
-        public IntPtr Icon;
-        public IntPtr Cursor;
-        public IntPtr Background;
-        public string? MenuName;
-        public string ClassName;
+        public readonly uint Style;
+        public readonly IntPtr Procedure = procedure;
+        public readonly int ClassExtra;
+        public readonly int WindowExtra;
+        public readonly IntPtr Instance;
+        public readonly IntPtr Icon;
+        public readonly IntPtr Cursor;
+        public readonly IntPtr Background;
+        public readonly string? MenuName;
+        public readonly string ClassName = className;
     }
 
     private static class NativeMethods

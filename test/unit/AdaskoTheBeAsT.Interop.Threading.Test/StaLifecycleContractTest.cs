@@ -102,7 +102,7 @@ public class StaLifecycleContractTest
             var task = scheduler.RunAsync(
                 () =>
                 {
-                    started.TrySetResult(Thread.CurrentThread.ManagedThreadId);
+                    started.TrySetResult(Environment.CurrentManagedThreadId);
                     release.Wait(Budget, CancellationToken.None);
                     return 1;
                 },
@@ -180,7 +180,7 @@ public class StaLifecycleContractTest
         {
             var act = () =>
             {
-                using var scheduler = new SingleThreadedApartmentTaskScheduler(null, platform, TimeSpan.FromMilliseconds(50));
+                using var scheduler = new SingleThreadedApartmentTaskScheduler(options: null, platform, TimeSpan.FromMilliseconds(50));
             };
             act.Should().Throw<InvalidOperationException>();
         }
@@ -200,7 +200,7 @@ public class StaLifecycleContractTest
         var platform = new TestStaPlatform { StartFailure = original };
         var act = () =>
         {
-            using var scheduler = new SingleThreadedApartmentTaskScheduler(null, platform, Budget);
+            using var scheduler = new SingleThreadedApartmentTaskScheduler(options: null, platform, Budget);
         };
         act.Should().Throw<InvalidOperationException>().Which.Should().BeSameAs(original);
         platform.Worker.Should().BeNull();
@@ -221,7 +221,7 @@ public class StaLifecycleContractTest
                 throw original;
             },
         };
-        using var scheduler = new SingleThreadedApartmentTaskScheduler(null, platform, Budget);
+        using var scheduler = new SingleThreadedApartmentTaskScheduler(options: null, platform, Budget);
         try
         {
             await waiting.Task.TimeoutAfterAsync(Budget, CancellationToken.None);

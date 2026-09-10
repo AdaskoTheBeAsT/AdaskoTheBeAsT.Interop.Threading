@@ -23,7 +23,7 @@ public class TaskExtensionContractTest
     [Fact]
     public async Task NonGeneric_NullTask_IsValidatedFirstAsync()
     {
-        Task source = null!;
+        const Task source = null!;
         var wait = source.TimeoutAfterAsync(TimeSpan.FromMilliseconds(-2), CancellationToken.None);
         var error = await Record.ExceptionAsync(async () => await wait);
         error.Should().BeOfType<ArgumentNullException>().Which.ParamName.Should().Be("task");
@@ -54,7 +54,7 @@ public class TaskExtensionContractTest
     [Fact]
     public async Task NullTask_IsValidatedBeforeTimeoutAsync()
     {
-        Task<int> task = null!;
+        const Task<int> task = null!;
         var act = async () => await task.TimeoutAfterAsync(TimeSpan.FromMilliseconds(-2), CancellationToken.None);
         var error = await act.Should().ThrowAsync<ArgumentNullException>();
         error.Which.ParamName.Should().Be(nameof(task));

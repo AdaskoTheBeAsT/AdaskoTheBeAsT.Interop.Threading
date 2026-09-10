@@ -65,7 +65,7 @@ public static class SingleThreadedApartmentTask
         }
 #endif
 
-        return RunAsync(func, cancellationToken, new StaPlatform());
+        return RunAsync(func, new StaPlatform(), cancellationToken);
     }
 
     /// <summary>
@@ -87,7 +87,7 @@ public static class SingleThreadedApartmentTask
         return source.TimeoutAfterAsync(timeSpan, cancellationToken);
     }
 
-    internal static Task<T> RunAsync<T>(Func<T> func, CancellationToken cancellationToken, StaPlatform platform)
+    internal static Task<T> RunAsync<T>(Func<T> func, StaPlatform platform, CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested)
         {
@@ -95,7 +95,7 @@ public static class SingleThreadedApartmentTask
         }
 
         var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var thread = new Thread(() => Execute(func, cancellationToken, platform, tcs))
+        var thread = new Thread(() => Execute(func, platform, tcs, cancellationToken))
         {
             IsBackground = true,
             Name = "STA Task Thread",
@@ -105,7 +105,7 @@ public static class SingleThreadedApartmentTask
     }
 
     private static void Execute<T>(
-        Func<T> func, CancellationToken token, StaPlatform platform, TaskCompletionSource<T> completion)
+        Func<T> func, StaPlatform platform, TaskCompletionSource<T> completion, CancellationToken token)
     {
         var initialized = false;
         var result = default(T)!;

@@ -55,7 +55,7 @@ public class MutexHelperAdditionalTest
                     rules.Should().Contain(rule =>
                         rule.IdentityReference == everyone
                         && rule.AccessControlType == AccessControlType.Allow
-                        && (rule.MutexRights & MutexRights.FullControl) == MutexRights.FullControl);
+                        && rule.MutexRights.HasFlag(MutexRights.FullControl));
                     return 0;
                 });
         }

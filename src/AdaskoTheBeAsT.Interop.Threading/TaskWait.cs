@@ -8,15 +8,13 @@ internal static class TaskWait
 {
     // The monitor never awaits the source outcome: an OCE in a faulted source
     // must stay faulted instead of being reclassified by an async method builder.
-#pragma warning disable VSTHRD200, RCS1229
-    public static Task<T> Start<T>(
-        Task source, TimeSpan timeout, CancellationToken token, Func<Task, T> getResult, Action? onWaitAbandoned = null)
+    public static Task<T> StartAsync<T>(
+        Task source, TimeSpan timeout, Func<Task, T> getResult, Action? onWaitAbandoned, CancellationToken token)
     {
         var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _ = MonitorAsync(source, timeout, token, getResult, completion, onWaitAbandoned);
+        _ = MonitorAsync(source, timeout, getResult, completion, onWaitAbandoned, token);
         return completion.Task;
     }
-#pragma warning restore VSTHRD200, RCS1229
 
     public static void ObserveFault(Task task)
     {
@@ -58,10 +56,10 @@ internal static class TaskWait
     private static async Task MonitorAsync<T>(
         Task source,
         TimeSpan timeout,
-        CancellationToken token,
         Func<Task, T> getResult,
         TaskCompletionSource<T> completion,
-        Action? onWaitAbandoned)
+        Action? onWaitAbandoned,
+        CancellationToken token)
     {
         Task winner;
         using (var delayCts = CancellationTokenSource.CreateLinkedTokenSource(token))

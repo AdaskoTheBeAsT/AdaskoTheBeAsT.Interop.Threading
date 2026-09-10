@@ -52,7 +52,7 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
 
     /// <summary>Initializes a new instance of the <see cref="SingleThreadedApartmentTaskScheduler"/> class.</summary>
     public SingleThreadedApartmentTaskScheduler()
-        : this(null)
+        : this(options: null)
     {
     }
 
@@ -128,14 +128,14 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
     public Task<T?> RunAsync<T>(Func<StaYield, T?> work, CancellationToken cancellationToken = default)
     {
         ValidateWork(work, nameof(work));
-        return Schedule(_ => work(new StaYield()), _defaultTimeout, cancellationToken);
+        return ScheduleAsync(_ => work(new StaYield()), _defaultTimeout, cancellationToken);
     }
 
     /// <inheritdoc />
     public Task RunAsync(Action<StaYield> work, CancellationToken cancellationToken = default)
     {
         ValidateWork(work, nameof(work));
-        return Schedule<object?>(
+        return ScheduleAsync<object?>(
             _ =>
             {
                 work(new StaYield());
@@ -155,7 +155,7 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
     public Task<T?> RunAsync<T>(Func<T?> func, TimeSpan timeout, CancellationToken cancellationToken)
     {
         ValidateWork(func, nameof(func));
-        return Schedule(_ => func(), timeout, cancellationToken);
+        return ScheduleAsync(_ => func(), timeout, cancellationToken);
     }
 
     /// <summary>Schedules synchronous cooperative work using the default timeout.</summary>
@@ -173,7 +173,7 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
         Func<StaYield, CancellationToken, T?> work, TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         ValidateWork(work, nameof(work));
-        return Schedule(token => work(new StaYield(), token), timeout, cancellationToken);
+        return ScheduleAsync(token => work(new StaYield(), token), timeout, cancellationToken);
     }
 
     /// <summary>Schedules a synchronous cooperative action using the default timeout.</summary>
@@ -190,7 +190,7 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
         Action<StaYield, CancellationToken> work, TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         ValidateWork(work, nameof(work));
-        return Schedule<object?>(
+        return ScheduleAsync<object?>(
             token =>
             {
                 work(new StaYield(), token);
@@ -296,8 +296,7 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
     }
 #pragma warning restore VSTHRD002, MA0040
 
-#pragma warning disable VSTHRD200, RCS1229
-    private Task<T?> Schedule<T>(Func<CancellationToken, T?> work, TimeSpan timeout, CancellationToken token)
+    private Task<T?> ScheduleAsync<T>(Func<CancellationToken, T?> work, TimeSpan timeout, CancellationToken token)
     {
         TimeoutValidation.Validate(timeout, nameof(timeout));
         if (token.IsCancellationRequested)
@@ -328,13 +327,13 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
                 return Task.FromException<T?>(new InvalidOperationException("The STA scheduler pending queue is full."));
             }
 
-            return Admit(work, timeout, token);
+            return AdmitAsync(work, timeout, token);
         }
     }
 
     // Called with the gate held. The budget starts here, not after dequeue.
 #pragma warning disable CA2000 // Ownership transfers to FinishWaitAsync.
-    private Task<T?> Admit<T>(Func<CancellationToken, T?> work, TimeSpan timeout, CancellationToken callerToken)
+    private Task<T?> AdmitAsync<T>(Func<CancellationToken, T?> work, TimeSpan timeout, CancellationToken callerToken)
     {
         var admitted = Stopwatch.StartNew();
         var id = ++_nextWorkId;
@@ -342,7 +341,7 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
         var linked = CancellationTokenSource.CreateLinkedTokenSource(callerToken, _shutdownCts.Token, timeoutCts.Token);
         var node = new LinkedListNode<IStaWorkItem>(null!);
         var item = new StaWorkItem<T>(
-            () => ExecuteWork(work, linked.Token, id, admitted),
+            () => ExecuteWork(work, id, admitted, linked.Token),
             linked.Token,
             () => RemoveCanceled(node, id));
         node.Value = item;
@@ -355,17 +354,16 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
         TraceWork(id, "queued", 0);
         var wait = timeout == Timeout.InfiniteTimeSpan
             ? item.Task
-            : TaskWait.Start(
+            : TaskWait.StartAsync(
                 item.Task,
                 Remaining(timeout, admitted),
-                callerToken,
                 static source => ((Task<T?>)source).GetAwaiter().GetResult(),
-                item.CancelPending);
+                item.CancelPending,
+                callerToken);
         StartFinishWait(item, wait, timeoutCts, linked, id, admitted);
         return wait;
     }
 #pragma warning restore CA2000
-#pragma warning restore VSTHRD200, RCS1229
 
     private void StartFinishWait<T>(
         StaWorkItem<T> item,
@@ -381,7 +379,7 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
 #pragma warning restore VSTHRD003
     }
 
-    private T? ExecuteWork<T>(Func<CancellationToken, T?> work, CancellationToken token, long id, Stopwatch admitted)
+    private T? ExecuteWork<T>(Func<CancellationToken, T?> work, long id, Stopwatch admitted, CancellationToken token)
     {
         TraceWork(id, "running", admitted.Elapsed.TotalMilliseconds);
         var execution = Stopwatch.StartNew();
@@ -425,7 +423,7 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
         var state = item.Task.IsFaulted ? "faulted" : "completed";
         TraceWork(id, item.Task.IsCanceled ? "canceled" : state, admitted.Elapsed.TotalMilliseconds);
         item.ReleaseRegistration();
-#pragma warning disable IDISP007 // Ownership of these sources transfers from Admit.
+#pragma warning disable IDISP007 // Ownership of these sources transfers from AdmitAsync.
         linked.Dispose();
         timeoutCts.Dispose();
 #pragma warning restore IDISP007

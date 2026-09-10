@@ -29,16 +29,16 @@ public class StaDiagnosticsContractTest
                 if (data.EventId == 1 && string.Equals(data.Payload?[2] as string, "running", StringComparison.Ordinal))
                 {
                     observed.TrySetResult((
-                        Thread.CurrentThread.ManagedThreadId,
+                        Environment.CurrentManagedThreadId,
                         (int)data.Payload![3]!,
                         (double)data.Payload[4]!));
                 }
             });
-        var workerThread = await scheduler.RunAsync(() => Thread.CurrentThread.ManagedThreadId, CancellationToken.None);
-        var snapshot = await observed.Task.TimeoutAfterAsync(TimeSpan.FromSeconds(5), CancellationToken.None);
-        snapshot.ThreadId.Should().NotBe(workerThread);
-        snapshot.Pending.Should().BeGreaterThanOrEqualTo(0);
-        snapshot.QueueMilliseconds.Should().BeGreaterThanOrEqualTo(0);
+        var workerThread = await scheduler.RunAsync(() => Environment.CurrentManagedThreadId, CancellationToken.None);
+        var (threadId, pending, queueMilliseconds) = await observed.Task.TimeoutAfterAsync(TimeSpan.FromSeconds(5), CancellationToken.None);
+        threadId.Should().NotBe(workerThread);
+        pending.Should().BeGreaterThanOrEqualTo(0);
+        queueMilliseconds.Should().BeGreaterThanOrEqualTo(0);
     }
 
     [Fact]

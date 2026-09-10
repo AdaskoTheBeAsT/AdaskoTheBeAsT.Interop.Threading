@@ -198,12 +198,20 @@ public static class MutexHelper
         }
 #endif
         var unqualified = name;
-        if (allowPrefix && (name.StartsWith("Global\\", StringComparison.Ordinal) || name.StartsWith("Local\\", StringComparison.Ordinal)))
+        if (allowPrefix && name.StartsWith("Global\\", StringComparison.Ordinal))
         {
-            unqualified = name.Substring(name.IndexOf('\\') + 1);
+            unqualified = name.Substring("Global\\".Length);
+        }
+        else if (allowPrefix && name.StartsWith("Local\\", StringComparison.Ordinal))
+        {
+            unqualified = name.Substring("Local\\".Length);
         }
 
-        if (unqualified.Length == 0 || unqualified.IndexOf('\\') >= 0 || name.IndexOf('\0') >= 0 || name.Length > 260)
+#if NET8_0_OR_GREATER
+        if (unqualified.Length == 0 || unqualified.Contains('\\', StringComparison.Ordinal) || name.Contains('\0', StringComparison.Ordinal) || name.Length > 260)
+#else
+        if (unqualified.Length == 0 || unqualified.Contains("\\") || name.Contains("\0") || name.Length > 260)
+#endif
         {
             throw new ArgumentException("Use a non-empty mutex name without embedded namespace separators or null characters.", nameof(name));
         }

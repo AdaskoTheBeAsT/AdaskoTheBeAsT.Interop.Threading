@@ -38,7 +38,7 @@ public class StaYieldTest
                 flag = true;
             },
             TestContext.Current.CancellationToken);
-        y.SpinUntil(() => flag, 5);
+        y.SpinUntil(() => flag, TestContext.Current.CancellationToken, 5);
         flag.Should().BeTrue();
 #pragma warning restore ParallelChecker
     }
@@ -47,9 +47,9 @@ public class StaYieldTest
     public void Sleep_DoesNotThrow()
     {
         var y = new StaYield();
-#pragma warning disable xUnit1051 // Exercise the existing non-cancelable overload.
+#pragma warning disable xUnit1051, MA0040 // Exercise the existing non-cancelable overload.
         y.Sleep(25);
-#pragma warning restore xUnit1051
+#pragma warning restore xUnit1051, MA0040
         true.Should().BeTrue();
     }
 }
