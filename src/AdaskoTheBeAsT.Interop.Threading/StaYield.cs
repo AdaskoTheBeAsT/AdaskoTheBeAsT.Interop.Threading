@@ -38,8 +38,9 @@ public sealed class StaYield(int intervalMs = 15)
     /// Repeatedly evaluates a condition until it becomes <see langword="true"/>, while continuing to pump messages between checks.
     /// </summary>
     /// <param name="condition">The condition to evaluate.</param>
-    /// <param name="checkEveryMs">The delay, in milliseconds, between condition checks.</param>
+    /// <param name="checkEveryMs">The non-negative delay, in milliseconds, between condition checks.</param>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="condition"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="checkEveryMs"/> is negative.</exception>
     public void SpinUntil(Func<bool> condition, int checkEveryMs = 10)
     {
         ValidatePollingInterval(checkEveryMs);

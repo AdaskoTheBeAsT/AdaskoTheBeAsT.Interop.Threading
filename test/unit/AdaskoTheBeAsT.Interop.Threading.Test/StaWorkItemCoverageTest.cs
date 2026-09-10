@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 #if NET8_0_OR_GREATER
 using System.Runtime.Versioning;
 #endif
@@ -14,6 +15,27 @@ namespace AdaskoTheBeAsT.Interop.Threading.Test;
 #endif
 public class StaWorkItemCoverageTest
 {
+    [Fact]
+    public void Execute_CancellationBeforeInvocation_ReleasesPendingCallback()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var (item, payload) = CreateWorkItemWithCapturedCallback(cancellation.Token);
+
+        // Cancellation callbacks run in reverse registration order. Execute sees
+        // cancellation before the work item's pending-cancellation callback runs.
+        using var executeRegistration = cancellation.Token.Register(item.Execute);
+        cancellation.Cancel();
+
+        item.Task.IsCanceled.Should().BeTrue();
+#pragma warning disable S1215 // Prove the completed item releases its callback capture while the item stays alive.
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+#pragma warning restore S1215
+        payload.IsAlive.Should().BeFalse();
+        GC.KeepAlive(item);
+    }
+
     [Fact]
     public async Task RunAsync_TokenCanceledDuringWork_DelegateIgnores_SurfacesCanceledAsync()
     {
@@ -163,6 +185,17 @@ public class StaWorkItemCoverageTest
 
         await actSecond.Should().ThrowAsync<OperationCanceledException>();
         await actThird.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static (StaWorkItem<int> Item, WeakReference Payload) CreateWorkItemWithCapturedCallback(CancellationToken token)
+    {
+        var payload = new object();
+        var item = new StaWorkItem<int>(
+            static () => throw new InvalidOperationException("Canceled work must not execute."),
+            token,
+            () => GC.KeepAlive(payload));
+        return (item, new WeakReference(payload));
     }
 
     private static void SkipIfNotWindows()

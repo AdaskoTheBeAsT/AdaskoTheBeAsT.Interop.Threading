@@ -58,6 +58,7 @@ internal sealed class StaWorkItem<T> : IStaWorkItem
         if (_cancellationToken.IsCancellationRequested)
         {
             _work = null;
+            _onPendingCanceled = null;
             _taskCompletionSource.TrySetCanceled(_cancellationToken);
             Interlocked.Exchange(ref _state, CanceledState);
             _cancellationRegistration.Dispose();
