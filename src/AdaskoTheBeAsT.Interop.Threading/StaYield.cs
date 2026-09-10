@@ -113,7 +113,11 @@ public sealed class StaYield(int intervalMs = 15)
     /// <param name="cancellationToken">Cancels the cooperative wait.</param>
     public void Sleep(int ms, CancellationToken cancellationToken)
     {
-        ValidatePollingInterval(ms);
+        if (ms < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(ms), ms, "Sleep duration must be non-negative.");
+        }
+
         var watch = Stopwatch.StartNew();
         do
         {

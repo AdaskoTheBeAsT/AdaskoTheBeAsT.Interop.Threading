@@ -8,13 +8,10 @@ The working tree now defaults to `Version=4.0.0` and targets **six frameworks**:
 See the [migration guide](../MIGRATION.md) for the removed targets and behavior
 changes.
 
-**The harness and evidence below describe the earlier nine-target configuration,
-not a validated 4.0 release.** In particular:
+The harness now uses the six supported targets on x64 and `net472` on x86,
+with Microsoft.Testing.Platform arguments and xUnit TRX reports.
+**The historical evidence below does not validate a 4.0 release.** In particular:
 
-- `Invoke-Validation.ps1` still includes `net471`, `net47`, and `net462`; its X86
-  mode targets `net462`. Those targets are no longer in the library/test projects.
-- Its test commands use the earlier VSTest-style arguments. Review them against
-  the selected test runner before reuse.
 - The current build files do not enable the earlier SDK package/API validation
   against 3.1.0. Do not infer API compatibility from those historical results.
 - Lockfiles must match the current framework and dependency inputs before a
@@ -31,8 +28,30 @@ dotnet build $library -c Release --no-restore -p:ContinuousIntegrationBuild=true
 
 Check each exit code before continuing. A failed locked restore requires review
 of the dependency changes, not silently bypassing locked mode. Before release,
-align the harness and test runner, rerun the six-target matrix and an explicit
-supported x86 target, and record fresh package/API compatibility evidence.
+rerun the six-target matrix and the supported x86 target, and record fresh
+package/API compatibility evidence.
+
+### PR #4 review-fix checks, 2026-09-10
+
+Checked locally on Windows with SDK 10.0.401:
+
+- Locked solution restore and six-target Release build passed with zero warnings
+  or errors.
+- Windows mode passed all 133 tests on each of the six x64 targets (798 test
+  executions), then stopped at the `StaService` locked restore with `NU1004`.
+  The sample lockfile still requests older shared analyzer dependencies
+  (`AdaskoTheBeAsT.AsyncFixer` 2.1.0.200 instead of 2.1.0.250). Sample builds,
+  hosted-service execution, and the child-process mutex harness were not reached.
+- X86 mode passed all 133 tests on `net472`, including the pointer-size assertion,
+  using `--arch x86`.
+- Portable mode passed all 17 timeout tests on Windows. This is not Linux
+  execution evidence.
+- Focused STA yield/contract tests passed 174 executions across the six targets.
+  The two new negative-duration cases first reproduced the incorrect `"checkEveryMs"`
+  parameter name, then passed with `"ms"`.
+
+The sample lockfile mismatch remains outside these two review fixes. No lockfiles
+were regenerated or locked-restore checks bypassed.
 
 ### Documentation checks, 2026-09-10
 

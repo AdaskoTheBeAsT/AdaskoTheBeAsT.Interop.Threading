@@ -28,8 +28,8 @@ function Invoke-Checked([string] $Executable, [string[]] $Arguments, [int] $Dead
 if ($Mode -ne 'Portable' -and -not $IsWindows) { throw "$Mode validation requires Windows and PowerShell 7." }
 Invoke-Checked dotnet @('restore', $solution, '--locked-mode')
 if ($Mode -eq 'Portable') {
-    Invoke-Checked dotnet @('test', $tests, '-c', $Configuration, '-f', 'net10.0', '--no-restore',
-        '--filter', 'FullyQualifiedName~TaskExtension', '--logger', 'trx')
+    Invoke-Checked dotnet @('test', '--project', $tests, '-c', $Configuration, '-f', 'net10.0', '--no-restore',
+        '--filter', 'FullyQualifiedName~TaskExtension', '--report-xunit-trx')
     return
 }
 
@@ -37,17 +37,17 @@ $previousArchitecture = $env:ASTRA_TEST_ARCHITECTURE
 try {
     if ($Mode -eq 'X86') {
         $env:ASTRA_TEST_ARCHITECTURE = 'x86'
-        Invoke-Checked dotnet @('test', $tests, '-c', $Configuration, '-f', 'net462', '--no-restore',
-            '-p:PlatformTarget=x86', '--logger', 'trx', '--', 'RunConfiguration.TargetPlatform=x86')
+        Invoke-Checked dotnet @('test', '--project', $tests, '-c', $Configuration, '-f', 'net472', '--no-restore',
+            '--arch', 'x86', '--report-xunit-trx')
         return
     }
 
     $env:ASTRA_TEST_ARCHITECTURE = 'x64'
     # GeneratePackageOnBuild is enabled. Build first; pack alone can reuse stale assemblies.
     Invoke-Checked dotnet @('build', $solution, '-c', $Configuration, '--no-restore', '-p:ContinuousIntegrationBuild=true')
-    foreach ($tfm in @('net10.0', 'net9.0', 'net8.0', 'net481', 'net48', 'net472', 'net471', 'net47', 'net462')) {
-        Invoke-Checked dotnet @('test', $tests, '-c', $Configuration, '-f', $tfm, '--no-build',
-            '--logger', 'trx', '--', 'RunConfiguration.TargetPlatform=x64') 90
+    foreach ($tfm in @('net10.0', 'net9.0', 'net8.0', 'net481', 'net48', 'net472')) {
+        Invoke-Checked dotnet @('test', '--project', $tests, '-c', $Configuration, '-f', $tfm, '--no-build',
+            '--report-xunit-trx') 90
     }
     foreach ($sample in @('StaService', 'MutexProbe')) {
         $project = Join-Path $repo "samples/$sample/$sample.csproj"

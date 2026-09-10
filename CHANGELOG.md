@@ -40,7 +40,7 @@ See the [migration guide](MIGRATION.md) for upgrade steps.
 
 ### Validation status
 
-Version 4.0.0 targets six frameworks. Earlier nine-target validation results do **not** validate this configuration. The validation harness still names removed targets, and the current build configuration no longer enables the earlier 3.1.0 package/API comparison. See [validation notes](docs/validation.md) for recorded results and outstanding checks.
+Version 4.0.0 targets six frameworks. Earlier nine-target validation results do **not** validate this configuration. The validation harness uses the six supported targets on x64 and `net472` on x86 with the selected Microsoft.Testing.Platform runner. The current build configuration no longer enables the earlier 3.1.0 package/API comparison. See [validation notes](docs/validation.md) for recorded results and outstanding checks.
 
 ## [3.1.0] - 2026-04-20
 

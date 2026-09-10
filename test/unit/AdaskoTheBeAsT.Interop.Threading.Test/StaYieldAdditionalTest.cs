@@ -64,6 +64,19 @@ public class StaYieldAdditionalTest
         stopwatch.ElapsedMilliseconds.Should().BeLessThan(250);
     }
 
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(int.MinValue)]
+    public void Sleep_WithCancellation_NegativeDuration_ThrowsForMs(int ms)
+    {
+        var y = new StaYield();
+        var act = () => y.Sleep(ms, TestContext.Current.CancellationToken);
+
+        var error = act.Should().Throw<ArgumentOutOfRangeException>().Which;
+        error.ParamName.Should().Be(nameof(ms));
+        error.ActualValue.Should().Be(ms);
+    }
+
     [Fact]
     public void Sleep_ZeroOrNegative_ReturnsImmediately()
     {
