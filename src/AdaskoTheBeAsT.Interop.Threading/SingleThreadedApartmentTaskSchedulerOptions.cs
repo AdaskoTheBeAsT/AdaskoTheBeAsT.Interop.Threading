@@ -26,4 +26,13 @@ public sealed class SingleThreadedApartmentTaskSchedulerOptions
     /// Individual calls may override this value.
     /// </summary>
     public TimeSpan DefaultWorkItemTimeout { get; set; } = Timeout.InfiniteTimeSpan;
+
+    /// <summary>
+    /// Gets or sets the maximum number of pending (not executing) items.
+    /// Null means unlimited. A full queue rejects new work rather than blocking its caller.
+    /// </summary>
+    public int? MaximumPendingWorkItems { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether payload-free EventSource diagnostics are enabled.</summary>
+    public bool EnableDiagnostics { get; set; }
 }

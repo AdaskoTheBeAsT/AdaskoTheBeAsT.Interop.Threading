@@ -93,11 +93,7 @@ public class SingleThreadedApartmentTaskSchedulerTest
 #pragma warning restore AsyncFixer04
 
         var combined = Task.WhenAll(first, second);
-#if NET8_0_OR_GREATER
         var completed = await Task.WhenAny(combined, Task.Delay(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
-#else
-        var completed = await Task.WhenAny(combined, Task.Delay(TimeSpan.FromSeconds(5)));
-#endif
         ReferenceEquals(combined, completed).Should().BeTrue("both items should complete promptly when the pump runs after each item");
     }
 
@@ -305,13 +301,10 @@ public class SingleThreadedApartmentTaskSchedulerTest
             cts.Token);
 #pragma warning restore VSTHRD003
 
-#if NET8_0_OR_GREATER
         started.Wait(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken).Should().BeTrue();
+#if NET8_0_OR_GREATER
         await cts.CancelAsync();
 #else
-#pragma warning disable xUnit1051, MA0040
-        started.Wait(TimeSpan.FromSeconds(2)).Should().BeTrue();
-#pragma warning restore xUnit1051, MA0040
         cts.Cancel();
 #endif
 

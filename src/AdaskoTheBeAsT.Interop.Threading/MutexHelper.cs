@@ -1,6 +1,5 @@
 using System;
 using System.Diagnostics;
-using System.Reflection;
 #if NET8_0_OR_GREATER
 using System.Runtime.Versioning;
 #endif
@@ -19,18 +18,6 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 #endif
 public static class MutexHelper
 {
-    // Computed once per process. The ACL (Everyone: FullControl) is invariant, so the
-    // MutexSecurity object is safe to reuse across all calls and threads.
-    private static readonly MutexSecurity _securitySettings = BuildEveryoneAllowSecurity();
-
-    // On some runtimes (notably .NET 10+ restoring cross-platform semantics for
-    // Mutex) the extension method System.Threading.Mutex.SetAccessControl is no
-    // longer present as an instance member. We look it up reflectively once and
-    // invoke it when available; otherwise we skip applying ACLs and emit trace
-    // diagnostics when unsupported, while preserving the historical
-    // PlatformNotSupportedException-swallowing behavior.
-    private static readonly MethodInfo? _setAccessControl = ResolveSetAccessControl();
-
     /// <summary>
     /// Runs a delegate while holding a named global mutex and waits indefinitely to acquire it.
     /// </summary>
@@ -86,18 +73,13 @@ public static class MutexHelper
         }
 #endif
 
+        ValidateName(name, allowPrefix: !isGlobal);
+        TimeoutValidation.Validate(timeout, nameof(timeout));
         var mutexName = isGlobal ? $"Global\\{name}" : name;
+        ValidateName(mutexName, allowPrefix: true);
 
-        using (var mutex = new Mutex(
-                   initiallyOwned: false,
-                   mutexName,
-                   out bool createdNew))
+        using (var mutex = CreateMutex(mutexName))
         {
-            if (createdNew)
-            {
-                TryApplyEveryoneAcl(mutex);
-            }
-
             var hasHandle = false;
             try
             {
@@ -107,12 +89,12 @@ public static class MutexHelper
                     if (!hasHandle)
                     {
                         throw new TimeoutException(
-                            $"Timeout waiting for exclusive access {mutexName} after {timeout}");
+                            $"Timeout waiting for exclusive access after {timeout}");
                     }
                 }
                 catch (AbandonedMutexException ex)
                 {
-                    Trace.TraceWarning($"Mutex '{mutexName}' was abandoned: {ex}");
+                    Trace.TraceWarning($"A named mutex was abandoned ({ex.GetType().Name}); protected state may require recovery.");
 
                     // Log the fact the mutex was abandoned in another process, it will still get acquired.
                     hasHandle = true;
@@ -130,6 +112,146 @@ public static class MutexHelper
         }
     }
 
+    /// <summary>
+    /// Executes synchronous code with explicit creation, abandonment, and cancelable-acquisition policies.
+    /// Cancellation wins before delegate invocation; any acquired mutex is always released on the acquiring thread.
+    /// </summary>
+    /// <typeparam name="T">Result type.</typeparam>
+    /// <param name="name">Unqualified name. Select the namespace through options, not a prefix.</param>
+    /// <param name="options">Security and acquisition policies.</param>
+    /// <param name="func">Synchronous delegate, never an async lambda.</param>
+    /// <param name="cancellationToken">Cancels acquisition, not the executing delegate.</param>
+    /// <returns>The delegate result.</returns>
+    public static T RunInMutex<T>(
+        string name, MutexExecutionOptions options, Func<T> func, CancellationToken cancellationToken = default)
+    {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(func);
+#else
+        if (options is null)
+        {
+            throw new ArgumentNullException(nameof(options));
+        }
+
+        if (func == null)
+        {
+            throw new ArgumentNullException(nameof(func));
+        }
+#endif
+        ValidateName(name, allowPrefix: false);
+        TimeoutValidation.Validate(options.Timeout, nameof(options));
+        cancellationToken.ThrowIfCancellationRequested();
+        var mutexName = options.IsGlobal ? $"Global\\{name}" : name;
+        ValidateName(mutexName, allowPrefix: true);
+        using var mutex = OpenOrCreateMutex(mutexName, options.Security ?? BuildCurrentUserSecurity());
+        var acquired = false;
+        try
+        {
+            try
+            {
+                acquired = Acquire(mutex, options.Timeout, cancellationToken);
+            }
+            catch (AbandonedMutexException)
+            {
+                acquired = true;
+                if (options.FailOnAbandonedMutex)
+                {
+                    throw;
+                }
+
+                Trace.TraceWarning("A named mutex was abandoned; protected state may require recovery.");
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!acquired)
+            {
+                throw new TimeoutException("Timeout waiting for exclusive mutex access.");
+            }
+
+            return func();
+        }
+        finally
+        {
+            if (acquired)
+            {
+                mutex.ReleaseMutex();
+            }
+        }
+    }
+
+    private static bool Acquire(Mutex mutex, TimeSpan timeout, CancellationToken token)
+    {
+        return token.CanBeCanceled
+            ? WaitHandle.WaitAny([mutex, token.WaitHandle], timeout) == 0
+            : mutex.WaitOne(timeout);
+    }
+
+    private static void ValidateName(string name, bool allowPrefix)
+    {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(name);
+#else
+        if (name is null)
+        {
+            throw new ArgumentNullException(nameof(name));
+        }
+#endif
+        var unqualified = name;
+        if (allowPrefix && name.StartsWith("Global\\", StringComparison.Ordinal))
+        {
+            unqualified = name.Substring("Global\\".Length);
+        }
+        else if (allowPrefix && name.StartsWith("Local\\", StringComparison.Ordinal))
+        {
+            unqualified = name.Substring("Local\\".Length);
+        }
+
+#if NET8_0_OR_GREATER
+        if (unqualified.Length == 0 || unqualified.Contains('\\', StringComparison.Ordinal) || name.Contains('\0', StringComparison.Ordinal) || name.Length > 260)
+#else
+        if (unqualified.Length == 0 || unqualified.Contains("\\") || name.Contains("\0") || name.Length > 260)
+#endif
+        {
+            throw new ArgumentException("Use a non-empty mutex name without embedded namespace separators or null characters.", nameof(name));
+        }
+    }
+
+    private static MutexSecurity BuildCurrentUserSecurity()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        var user = identity.User ?? throw new InvalidOperationException("The current Windows user has no SID.");
+        var security = new MutexSecurity();
+        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        security.AddAccessRule(new MutexAccessRule(user, MutexRights.Synchronize | MutexRights.Modify, AccessControlType.Allow));
+        return security;
+    }
+
+    private static Mutex OpenOrCreateMutex(string name, MutexSecurity security)
+    {
+        try
+        {
+            return OpenForSynchronization(name);
+        }
+        catch (WaitHandleCannotBeOpenedException)
+        {
+            try
+            {
+                return MutexAcl.Create(initiallyOwned: false, name, out _, security);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // A competing creator may have won with a restricted ACL.
+                return OpenForSynchronization(name);
+            }
+        }
+    }
+
+    private static Mutex OpenForSynchronization(string name)
+    {
+        return MutexAcl.OpenExisting(name, MutexRights.Synchronize | MutexRights.Modify);
+    }
+
     private static MutexSecurity BuildEveryoneAllowSecurity()
     {
         var allowEveryoneRule = new MutexAccessRule(
@@ -142,70 +264,10 @@ public static class MutexHelper
         return securitySettings;
     }
 
-    private static MethodInfo? ResolveSetAccessControl()
+    private static Mutex CreateMutex(string name)
     {
-        // Prefer the instance method if the current runtime has one (net462/.NET
-        // Framework and some .NET target packs). When it is not present we fall
-        // back to the extension method defined in the MutexAclExtensions type
-        // shipped by System.Threading.AccessControl on .NET 8+.
-        var instanceMethod = typeof(Mutex).GetMethod(
-            "SetAccessControl",
-            BindingFlags.Instance | BindingFlags.Public,
-            binder: null,
-            types: [typeof(MutexSecurity)],
-            modifiers: null);
-
-        if (instanceMethod is not null)
-        {
-            return instanceMethod;
-        }
-
-        var aclExtensionsType = Type.GetType(
-            "System.Threading.MutexAclExtensions, System.Threading.AccessControl",
-            throwOnError: false);
-
-        return aclExtensionsType?.GetMethod(
-            "SetAccessControl",
-            BindingFlags.Static | BindingFlags.Public,
-            binder: null,
-            types: [typeof(Mutex), typeof(MutexSecurity)],
-            modifiers: null);
-    }
-
-    private static void TryApplyEveryoneAcl(Mutex mutex)
-    {
-        if (_setAccessControl is null)
-        {
-            return;
-        }
-
-        try
-        {
-            if (_setAccessControl.IsStatic)
-            {
-                _setAccessControl.Invoke(obj: null, [mutex, _securitySettings]);
-            }
-            else
-            {
-                _setAccessControl.Invoke(mutex, [_securitySettings]);
-            }
-        }
-#pragma warning disable CA1031
-        catch (TargetInvocationException ex) when (ex.InnerException is PlatformNotSupportedException)
-        {
-            // runtime does not support SetAccessControl — continue without ACL.
-            Trace.TraceInformation($"Mutex ACL not supported on this runtime: {ex.InnerException.Message}");
-        }
-        catch (PlatformNotSupportedException ex)
-        {
-            // runtime does not support SetAccessControl — continue without ACL.
-            Trace.TraceInformation($"Mutex ACL not supported on this runtime: {ex.Message}");
-        }
-        catch (Exception ex)
-        {
-            // Any other failure to apply the ACL should not prevent the caller from using the mutex.
-            Trace.TraceWarning($"Failed to apply Everyone ACL to mutex: {ex}");
-        }
-#pragma warning restore CA1031
+        // Apply a fresh security descriptor atomically when creating the mutex.
+        // Opening an existing mutex leaves its security descriptor unchanged.
+        return MutexAcl.Create(initiallyOwned: false, name, out _, BuildEveryoneAllowSecurity());
     }
 }

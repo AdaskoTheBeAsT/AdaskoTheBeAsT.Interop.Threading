@@ -1,4 +1,11 @@
 <Project>
+  <PropertyGroup>
+    <ErrorLog>$(RepositoryRoot).sarif/$(MSBuildProjectName)/$(Configuration)/$(TargetFramework)/analysis.sarif</ErrorLog>
+  </PropertyGroup>
+  <Target Name="CreateAnalyzerReportDirectory" BeforeTargets="CoreCompile">
+    <MakeDir Directories="$([System.IO.Path]::GetDirectoryName('$(ErrorLog)'))" />
+  </Target>
+
   <!-- Deterministic build workaround -->
   <Import Project="$(MSBuildThisFileDirectory)DeterministicBuild.targets" />
 </Project>

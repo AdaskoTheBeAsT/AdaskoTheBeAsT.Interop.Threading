@@ -20,42 +20,60 @@ public static class TaskExtension
     /// <exception cref="TimeoutException">Thrown when the timeout expires before the task completes.</exception>
     /// <exception cref="OperationCanceledException">Thrown when <paramref name="cancellationToken"/> is canceled before the task completes.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="timeout"/> is negative or exceeds the range supported by <see cref="Task.Delay(TimeSpan, CancellationToken)"/>.</exception>
-    public static async Task<TResult> TimeoutAfterAsync<TResult>(
+    public static Task<TResult> TimeoutAfterAsync<TResult>(
         this Task<TResult> task,
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
-        if (timeout != Timeout.InfiniteTimeSpan &&
-            (timeout < TimeSpan.Zero
-             || timeout.TotalMilliseconds > int.MaxValue - 1))
+        try
         {
-            throw new ArgumentOutOfRangeException(
-                nameof(timeout),
-                timeout,
-                $"Timeout must be {nameof(Timeout.InfiniteTimeSpan)} or a non-negative {nameof(TimeSpan)} whose total milliseconds do not exceed {int.MaxValue - 1} (the upper bound supported by {nameof(Task)}.{nameof(Task.Delay)}).");
+            Validate(task, timeout);
+        }
+        catch (ArgumentException ex)
+        {
+            // Preserve the existing asynchronous validation timing.
+            return Task.FromException<TResult>(ex);
         }
 
-        using var timeoutCts = new CancellationTokenSource();
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-        var delayTask = Task.Delay(timeout, linkedCts.Token);
+        return task.IsCompleted || (timeout == Timeout.InfiniteTimeSpan && !cancellationToken.CanBeCanceled)
+            ? task
+            : TaskWait.StartAsync(task, timeout, static source => ((Task<TResult>)source).GetAwaiter().GetResult(), onWaitAbandoned: null, cancellationToken);
+    }
 
-#pragma warning disable VSTHRD003
-        var finished = await Task.WhenAny(task, delayTask).ConfigureAwait(false);
-#pragma warning restore VSTHRD003
-
-        if (finished == task)
+    /// <summary>
+    /// Waits for a task without canceling or taking ownership of that task.
+    /// A completed source wins over cancellation of the wait. Validation always runs first.
+    /// </summary>
+    /// <param name="task">The source task.</param>
+    /// <param name="timeout">The wait budget, or <see cref="Timeout.InfiniteTimeSpan"/>.</param>
+    /// <param name="cancellationToken">Cancels only the wait.</param>
+    /// <returns>A task preserving the source outcome, or reporting wait timeout/cancellation.</returns>
+    public static Task TimeoutAfterAsync(this Task task, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        try
         {
+            Validate(task, timeout);
+        }
+        catch (ArgumentException ex)
+        {
+            return Task.FromException(ex);
+        }
+
+        return task.IsCompleted || (timeout == Timeout.InfiniteTimeSpan && !cancellationToken.CanBeCanceled)
+            ? task
+            : TaskWait.StartAsync(task, timeout, static _ => true, onWaitAbandoned: null, cancellationToken);
+    }
+
+    private static void Validate(Task task, TimeSpan timeout)
+    {
 #if NET8_0_OR_GREATER
-            await timeoutCts.CancelAsync().ConfigureAwait(false);
+        ArgumentNullException.ThrowIfNull(task);
 #else
-            timeoutCts.Cancel();
-#endif
-#pragma warning disable VSTHRD003
-            return await task.ConfigureAwait(false);
-#pragma warning restore VSTHRD003
+        if (task is null)
+        {
+            throw new ArgumentNullException(nameof(task));
         }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        throw new TimeoutException($"The operation has timed out after {timeout}.");
+#endif
+        TimeoutValidation.Validate(timeout, nameof(timeout));
     }
 }

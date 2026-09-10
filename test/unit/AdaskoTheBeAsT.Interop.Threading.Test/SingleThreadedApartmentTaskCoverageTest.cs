@@ -14,6 +14,39 @@ namespace AdaskoTheBeAsT.Interop.Threading.Test;
 #endif
 public class SingleThreadedApartmentTaskCoverageTest
 {
+    [Theory]
+    [InlineData(-2)]
+    [InlineData(int.MaxValue)]
+    public async Task RunWithTimeoutAsync_InvalidTimeout_DoesNotStartWorkAsync(int milliseconds)
+    {
+        SkipIfNotWindows();
+
+        var invoked = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var act = async () => await SingleThreadedApartmentTask.RunWithTimeoutAsync(
+            TimeSpan.FromMilliseconds(milliseconds),
+            () => invoked.TrySetResult(true),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
+
+        var observation = Task.Delay(100, TestContext.Current.CancellationToken);
+        var completed = await Task.WhenAny(invoked.Task, observation);
+        completed.Should().BeSameAs(observation, "invalid arguments must not start the STA delegate");
+    }
+
+    [Fact]
+    public async Task RunWithTimeoutAsync_InfiniteTimeout_ReturnsResultAsync()
+    {
+        SkipIfNotWindows();
+
+        var result = await SingleThreadedApartmentTask.RunWithTimeoutAsync(
+            Timeout.InfiniteTimeSpan,
+            () => 42,
+            CancellationToken.None);
+
+        result.Should().Be(42);
+    }
+
     [Fact]
     public async Task RunAsync_StaYieldOverload_ExecutesOnStaAndReturnsValueAsync()
     {
@@ -114,11 +147,7 @@ public class SingleThreadedApartmentTaskCoverageTest
                 TimeSpan.FromMilliseconds(200),
                 () =>
                 {
-#if NET8_0_OR_GREATER
                     release.Wait(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
-#else
-                    release.Wait(TimeSpan.FromSeconds(30));
-#endif
                     return 1;
                 },
                 CancellationToken.None);

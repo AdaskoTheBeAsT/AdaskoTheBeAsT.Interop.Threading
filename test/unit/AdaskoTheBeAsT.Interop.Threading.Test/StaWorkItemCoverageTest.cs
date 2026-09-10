@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 #if NET8_0_OR_GREATER
 using System.Runtime.Versioning;
 #endif
@@ -15,6 +16,27 @@ namespace AdaskoTheBeAsT.Interop.Threading.Test;
 public class StaWorkItemCoverageTest
 {
     [Fact]
+    public void Execute_CancellationBeforeInvocation_ReleasesPendingCallback()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var (item, payload) = CreateWorkItemWithCapturedCallback(cancellation.Token);
+
+        // Cancellation callbacks run in reverse registration order. Execute sees
+        // cancellation before the work item's pending-cancellation callback runs.
+        using var executeRegistration = cancellation.Token.Register(item.Execute);
+        cancellation.Cancel();
+
+        item.Task.IsCanceled.Should().BeTrue();
+#pragma warning disable S1215 // Prove the completed item releases its callback capture while the item stays alive.
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+#pragma warning restore S1215
+        payload.IsAlive.Should().BeFalse();
+        GC.KeepAlive(item);
+    }
+
+    [Fact]
     public async Task RunAsync_TokenCanceledDuringWork_DelegateIgnores_SurfacesCanceledAsync()
     {
         SkipIfNotWindows();
@@ -22,6 +44,7 @@ public class StaWorkItemCoverageTest
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
         using var cts = new CancellationTokenSource();
         using var canceledSignal = new ManualResetEventSlim(initialState: false);
+        var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         // Delegate that cooperatively waits for the caller's token to cancel,
         // then RETURNS a value WITHOUT throwing OperationCanceledException.
@@ -38,18 +61,26 @@ public class StaWorkItemCoverageTest
         var task = scheduler.RunAsync<int>(
             () =>
             {
+                started.TrySetResult(true);
                 canceledSignal.Wait(TimeSpan.FromSeconds(5));
                 return 42;
             },
             cts.Token);
 #pragma warning restore xUnit1051, MA0040
 
+        try
+        {
+            await started.Task.TimeoutAfterAsync(TimeSpan.FromSeconds(5), CancellationToken.None);
 #if NET8_0_OR_GREATER
-        await cts.CancelAsync();
+            await cts.CancelAsync();
 #else
-        cts.Cancel();
+            cts.Cancel();
 #endif
-        canceledSignal.Set();
+        }
+        finally
+        {
+            canceledSignal.Set();
+        }
 
         Func<Task> act = async () =>
         {
@@ -58,6 +89,7 @@ public class StaWorkItemCoverageTest
 #pragma warning restore VSTHRD003
         };
         await act.Should().ThrowAsync<OperationCanceledException>();
+        task.IsCanceled.Should().BeTrue();
     }
 
     // IDISP016/IDISP017: the test intentionally drains the queue via
@@ -117,7 +149,9 @@ public class StaWorkItemCoverageTest
         var third = scheduler.RunAsync<int>(() => 3, CancellationToken.None);
 #pragma warning restore AsyncFixer04
 
+#pragma warning disable VSTHRD103 // Do not wait for termination before releasing the active delegate.
         scheduler.Shutdown();
+#pragma warning restore VSTHRD103
         releaseFirst.Set();
 
         await ObserveDrainResultsAsync(first, second, third);
@@ -151,6 +185,17 @@ public class StaWorkItemCoverageTest
 
         await actSecond.Should().ThrowAsync<OperationCanceledException>();
         await actThird.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static (StaWorkItem<int> Item, WeakReference Payload) CreateWorkItemWithCapturedCallback(CancellationToken token)
+    {
+        var payload = new object();
+        var item = new StaWorkItem<int>(
+            static () => throw new InvalidOperationException("Canceled work must not execute."),
+            token,
+            () => GC.KeepAlive(payload));
+        return (item, new WeakReference(payload));
     }
 
     private static void SkipIfNotWindows()

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
+    <ProjectReference Include="../../src/AdaskoTheBeAsT.Interop.Threading/AdaskoTheBeAsT.Interop.Threading.csproj" />
+    <!-- Reuse only the dependency-free native fixture, not the test assembly. -->
+    <Compile Include="../../test/unit/AdaskoTheBeAsT.Interop.Threading.Test/MessageWindow.cs" Link="MessageWindow.cs" />
+  </ItemGroup>
+</Project>

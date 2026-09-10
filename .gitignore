@@ -364,3 +364,4 @@ baseline/build.log
 .sarif/*
 !.sarif/.gitkeep
 **/[Tt]est[Rr]esult*/
+astra_plan.md
