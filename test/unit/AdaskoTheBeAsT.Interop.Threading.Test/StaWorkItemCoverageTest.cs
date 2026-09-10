@@ -22,6 +22,7 @@ public class StaWorkItemCoverageTest
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
         using var cts = new CancellationTokenSource();
         using var canceledSignal = new ManualResetEventSlim(initialState: false);
+        var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         // Delegate that cooperatively waits for the caller's token to cancel,
         // then RETURNS a value WITHOUT throwing OperationCanceledException.
@@ -38,18 +39,26 @@ public class StaWorkItemCoverageTest
         var task = scheduler.RunAsync<int>(
             () =>
             {
+                started.TrySetResult(true);
                 canceledSignal.Wait(TimeSpan.FromSeconds(5));
                 return 42;
             },
             cts.Token);
 #pragma warning restore xUnit1051, MA0040
 
+        try
+        {
+            await started.Task.TimeoutAfterAsync(TimeSpan.FromSeconds(5), CancellationToken.None);
 #if NET8_0_OR_GREATER
-        await cts.CancelAsync();
+            await cts.CancelAsync();
 #else
-        cts.Cancel();
+            cts.Cancel();
 #endif
-        canceledSignal.Set();
+        }
+        finally
+        {
+            canceledSignal.Set();
+        }
 
         Func<Task> act = async () =>
         {
@@ -58,6 +67,7 @@ public class StaWorkItemCoverageTest
 #pragma warning restore VSTHRD003
         };
         await act.Should().ThrowAsync<OperationCanceledException>();
+        task.IsCanceled.Should().BeTrue();
     }
 
     // IDISP016/IDISP017: the test intentionally drains the queue via
@@ -117,7 +127,9 @@ public class StaWorkItemCoverageTest
         var third = scheduler.RunAsync<int>(() => 3, CancellationToken.None);
 #pragma warning restore AsyncFixer04
 
+#pragma warning disable VSTHRD103 // Do not wait for termination before releasing the active delegate.
         scheduler.Shutdown();
+#pragma warning restore VSTHRD103
         releaseFirst.Set();
 
         await ObserveDrainResultsAsync(first, second, third);

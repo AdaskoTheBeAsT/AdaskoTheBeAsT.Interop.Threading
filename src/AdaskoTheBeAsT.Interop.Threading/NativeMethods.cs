@@ -7,119 +7,66 @@ using System.Runtime.Versioning;
 namespace AdaskoTheBeAsT.Interop.Threading;
 
 #pragma warning disable S101
-#if NETSTANDARD2_0 || NETFRAMEWORK
-internal static class NativeMethods
-{
-    public const uint INFINITE = unchecked((uint)-1);
-    public const uint QS_ALLINPUT = 0x04FF;
-    public const uint WAIT_OBJECT_0 = 0x00000000;
-    private const uint PM_REMOVE = 0x0001;
-
-    public static void PumpPendingMessages()
-    {
-        while (PeekMessage(out var msg, IntPtr.Zero, 0, 0, PM_REMOVE))
-        {
-            TranslateMessage(ref msg);
-            DispatchMessage(ref msg);
-        }
-    }
-
-    [DllImport("ole32.dll")]
-    public static extern int OleInitialize(IntPtr pvReserved);
-
-    [DllImport("ole32.dll")]
-    public static extern void OleUninitialize();
-
-    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    public static extern uint MsgWaitForMultipleObjects(
-        uint nCount,
-        [In] IntPtr[] pHandles,
-        bool bWaitAll,
-        uint dwMilliseconds,
-        uint dwWakeMask);
-
-    [DllImport("user32.dll", EntryPoint = "PeekMessageW", CharSet = CharSet.Unicode)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool PeekMessage(
-        out MSG lpMsg,
-        IntPtr hWnd,
-        uint wMsgFilterMin,
-        uint wMsgFilterMax,
-        uint wRemoveMsg);
-
-    [DllImport("user32.dll", EntryPoint = nameof(TranslateMessage), CharSet = CharSet.Unicode)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool TranslateMessage([In] ref MSG lpMsg);
-
-    [DllImport("user32.dll", EntryPoint = "DispatchMessageW", CharSet = CharSet.Unicode)]
-    private static extern IntPtr DispatchMessage([In] ref MSG lpMsg);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MSG
-    {
-        public readonly IntPtr hwnd;
-        public readonly uint message;
-        public readonly UIntPtr wParam;
-        public readonly IntPtr lParam;
-        public readonly uint time;
-        public readonly POINT pt;
-        public readonly uint lPrivate;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct POINT
-    {
-        public readonly int x;
-        public readonly int y;
-    }
-}
-#endif
 #if NET8_0_OR_GREATER
 [SupportedOSPlatform("windows")]
+#endif
 internal static partial class NativeMethods
 {
     public const uint INFINITE = unchecked((uint)-1);
     public const uint QS_ALLINPUT = 0x04FF;
-    public const uint WAIT_OBJECT_0 = 0x00000000;
-    private const uint PM_REMOVE = 0x0001;
+    public const uint WAIT_OBJECT_0 = 0;
+    public const uint WAIT_FAILED = uint.MaxValue;
+    private const uint PM_REMOVE = 1;
+    private const uint WM_QUIT = 0x0012;
+    private const uint MWMO_INPUTAVAILABLE = 0x0004;
+    private const int MessageBatchSize = 64;
 
-    public static void PumpPendingMessages()
+    public static PumpOutcome PumpPendingMessages(bool preserveQuit = true)
     {
-        while (PeekMessage(out var msg, IntPtr.Zero, 0, 0, PM_REMOVE))
+        for (var count = 0; count < MessageBatchSize; count++)
         {
+            if (!PeekMessage(out var msg, IntPtr.Zero, 0, 0, PM_REMOVE))
+            {
+                return default;
+            }
+
+            if (msg.message == WM_QUIT)
+            {
+                var exitCode = unchecked((int)msg.wParam.ToUInt64());
+                if (preserveQuit)
+                {
+                    PostQuitMessage(exitCode);
+                }
+
+                return new PumpOutcome(quitSeen: true, exitCode, budgetExhausted: false);
+            }
+
             TranslateMessage(ref msg);
             DispatchMessage(ref msg);
         }
+
+        return new PumpOutcome(quitSeen: false, exitCode: 0, budgetExhausted: true);
     }
 
+    public static uint WaitForWork(IntPtr[] handles)
+    {
+        return MsgWaitForMultipleObjectsEx((uint)handles.Length, handles, INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    }
+
+#if NET8_0_OR_GREATER
     [LibraryImport("ole32.dll")]
     public static partial int OleInitialize(IntPtr pvReserved);
 
     [LibraryImport("ole32.dll")]
     public static partial void OleUninitialize();
 
-#pragma warning disable SYSLIB1092 // The usage of 'LibraryImportAttribute' does not follow recommendations.
-    // SYSLIB1092: [In]/[Out] attributes on array parameters are not supported
-    // by the LibraryImport source generator and are ignored. The default
-    // marshalling behavior (pinned-pass-by-reference) is what this native
-    // API requires, so simply omit the attribute.
     [LibraryImport("user32.dll", SetLastError = true)]
-    public static partial uint MsgWaitForMultipleObjects(
-        uint nCount,
-        IntPtr[] pHandles,
-        [MarshalAs(UnmanagedType.Bool)] bool bWaitAll,
-        uint dwMilliseconds,
-        uint dwWakeMask);
-#pragma warning restore SYSLIB1092 // The usage of 'LibraryImportAttribute' does not follow recommendations.
+    private static partial uint MsgWaitForMultipleObjectsEx(
+        uint nCount, IntPtr[] pHandles, uint dwMilliseconds, uint dwWakeMask, uint dwFlags);
 
     [LibraryImport("user32.dll", EntryPoint = "PeekMessageW")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool PeekMessage(
-        out MSG lpMsg,
-        IntPtr hWnd,
-        uint wMsgFilterMin,
-        uint wMsgFilterMax,
-        uint wRemoveMsg);
+    private static partial bool PeekMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
 
     [LibraryImport("user32.dll", EntryPoint = nameof(TranslateMessage))]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -128,6 +75,34 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll", EntryPoint = "DispatchMessageW")]
     private static partial IntPtr DispatchMessage(ref MSG lpMsg);
 
+    [LibraryImport("user32.dll")]
+    private static partial void PostQuitMessage(int exitCode);
+#else
+    [DllImport("ole32.dll")]
+    public static extern int OleInitialize(IntPtr pvReserved);
+
+    [DllImport("ole32.dll")]
+    public static extern void OleUninitialize();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint MsgWaitForMultipleObjectsEx(
+        uint nCount, [In] IntPtr[] pHandles, uint dwMilliseconds, uint dwWakeMask, uint dwFlags);
+
+    [DllImport("user32.dll", EntryPoint = "PeekMessageW", CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PeekMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
+
+    [DllImport("user32.dll", EntryPoint = nameof(TranslateMessage), CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool TranslateMessage([In] ref MSG lpMsg);
+
+    [DllImport("user32.dll", EntryPoint = "DispatchMessageW", CharSet = CharSet.Unicode)]
+    private static extern IntPtr DispatchMessage([In] ref MSG lpMsg);
+
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern void PostQuitMessage(int exitCode);
+#endif
+
     [StructLayout(LayoutKind.Sequential)]
     private struct MSG
     {
@@ -147,5 +122,4 @@ internal static partial class NativeMethods
         public readonly int y;
     }
 }
-#endif
 #pragma warning restore S101

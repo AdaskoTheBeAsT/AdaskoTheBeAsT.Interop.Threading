@@ -17,11 +17,7 @@ public class MutexHelperTest
     [Fact]
     public async Task RunInMutex_EnforcesMutualExclusionAsync()
     {
-#if NET8_0_OR_GREATER
         var ct = TestContext.Current.CancellationToken;
-#else
-        var ct = CancellationToken.None;
-#endif
 
         var name = "test_mutex_" + Guid.NewGuid();
         var counter = 0;

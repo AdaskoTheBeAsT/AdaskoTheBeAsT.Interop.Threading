@@ -17,8 +17,6 @@ internal sealed class StaWorkItem<T> : IStaWorkItem
     private const int CompletedState = 2;
     private const int CanceledState = 3;
 
-    private readonly Func<T?> _work;
-
     private readonly CancellationToken _cancellationToken;
 
     private readonly TaskCompletionSource<T?> _taskCompletionSource =
@@ -26,16 +24,21 @@ internal sealed class StaWorkItem<T> : IStaWorkItem
 
     private readonly CancellationTokenRegistration _cancellationRegistration;
 
+    private Func<T?>? _work;
+
+    private Action? _onPendingCanceled;
+
     private int _state = PendingState;
 
-    public StaWorkItem(Func<T?> work, CancellationToken cancellationToken)
+    public StaWorkItem(Func<T?> work, CancellationToken cancellationToken, Action? onPendingCanceled = null)
     {
         _work = work ?? throw new ArgumentNullException(nameof(work));
         _cancellationToken = cancellationToken;
+        _onPendingCanceled = onPendingCanceled;
 
         _cancellationRegistration = cancellationToken.CanBeCanceled
             ? cancellationToken.Register(
-                static state => ((StaWorkItem<T>)state!).OnCanceled(),
+                static (object? state) => ((StaWorkItem<T>)state!).OnCanceled(),
                 this)
             : default;
     }
@@ -54,6 +57,7 @@ internal sealed class StaWorkItem<T> : IStaWorkItem
         // between dequeue and here; bail out early rather than running user code.
         if (_cancellationToken.IsCancellationRequested)
         {
+            _work = null;
             _taskCompletionSource.TrySetCanceled(_cancellationToken);
             Interlocked.Exchange(ref _state, CanceledState);
             _cancellationRegistration.Dispose();
@@ -62,7 +66,7 @@ internal sealed class StaWorkItem<T> : IStaWorkItem
 
         try
         {
-            var result = _work();
+            var result = _work!();
 
             // If cancellation was requested while the work was running, surface it
             // as a cancellation rather than a successful result (cooperative model:
@@ -87,6 +91,8 @@ internal sealed class StaWorkItem<T> : IStaWorkItem
         }
         finally
         {
+            _work = null;
+            _onPendingCanceled = null;
             Interlocked.CompareExchange(ref _state, CompletedState, ExecutingState);
             _cancellationRegistration.Dispose();
         }
@@ -94,12 +100,37 @@ internal sealed class StaWorkItem<T> : IStaWorkItem
 
     public void Cancel()
     {
+        CancelPending();
+        _cancellationRegistration.Dispose();
+    }
+
+    public void CancelPending()
+    {
         if (Interlocked.CompareExchange(ref _state, CanceledState, PendingState) == PendingState)
         {
+            _work = null;
+            _onPendingCanceled?.Invoke();
+            _onPendingCanceled = null;
+
             // Preserve the associated cancellation token so callers observing
             // the resulting TaskCanceledException see the same token here and
             // from OnCanceled()/Execute(), giving consistent cancellation diagnostics.
             _taskCompletionSource.TrySetCanceled(_cancellationToken);
+        }
+    }
+
+    public void ReleaseRegistration()
+    {
+        _cancellationRegistration.Dispose();
+    }
+
+    public void Fail(Exception exception)
+    {
+        if (Interlocked.CompareExchange(ref _state, CompletedState, PendingState) == PendingState)
+        {
+            _work = null;
+            _onPendingCanceled = null;
+            _taskCompletionSource.TrySetException(exception);
         }
 
         _cancellationRegistration.Dispose();
@@ -111,6 +142,9 @@ internal sealed class StaWorkItem<T> : IStaWorkItem
         // the work item cooperatively observes the token via _cancellationToken.IsCancellationRequested.
         if (Interlocked.CompareExchange(ref _state, CanceledState, PendingState) == PendingState)
         {
+            _work = null;
+            _onPendingCanceled?.Invoke();
+            _onPendingCanceled = null;
             _taskCompletionSource.TrySetCanceled(_cancellationToken);
         }
     }

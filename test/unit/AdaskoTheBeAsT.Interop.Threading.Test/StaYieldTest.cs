@@ -31,7 +31,6 @@ public class StaYieldTest
         var y = new StaYield();
         var flag = false;
 
-#if NET8_0_OR_GREATER
         _ = Task.Run(
             async () =>
             {
@@ -39,13 +38,6 @@ public class StaYieldTest
                 flag = true;
             },
             TestContext.Current.CancellationToken);
-#else
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(50);
-            flag = true;
-        });
-#endif
         y.SpinUntil(() => flag, 5);
         flag.Should().BeTrue();
 #pragma warning restore ParallelChecker
@@ -55,7 +47,9 @@ public class StaYieldTest
     public void Sleep_DoesNotThrow()
     {
         var y = new StaYield();
+#pragma warning disable xUnit1051 // Exercise the existing non-cancelable overload.
         y.Sleep(25);
+#pragma warning restore xUnit1051
         true.Should().BeTrue();
     }
 }

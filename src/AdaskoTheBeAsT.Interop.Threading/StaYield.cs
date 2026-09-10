@@ -42,6 +42,7 @@ public sealed class StaYield(int intervalMs = 15)
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="condition"/> is <see langword="null"/>.</exception>
     public void SpinUntil(Func<bool> condition, int checkEveryMs = 10)
     {
+        ValidatePollingInterval(checkEveryMs);
 #if NET6_0_OR_GREATER
         ArgumentNullException.ThrowIfNull(condition);
 #else
@@ -56,6 +57,78 @@ public sealed class StaYield(int intervalMs = 15)
             Occasionally();
             Thread.Sleep(checkEveryMs);
         }
+    }
+
+    /// <summary>Waits for a condition while pumping, until canceled.</summary>
+    /// <param name="condition">Synchronous condition evaluated on the calling thread.</param>
+    /// <param name="cancellationToken">Cancels the cooperative wait.</param>
+    /// <param name="checkEveryMs">Non-negative polling interval.</param>
+    public void SpinUntil(Func<bool> condition, CancellationToken cancellationToken, int checkEveryMs = 10)
+    {
+        _ = SpinUntil(condition, Timeout.InfiniteTimeSpan, cancellationToken, checkEveryMs);
+    }
+
+    /// <summary>Waits for a condition while pumping. Returns false when the budget expires.</summary>
+    /// <param name="condition">Synchronous condition evaluated on the calling thread.</param>
+    /// <param name="timeout">Maximum wait, or <see cref="Timeout.InfiniteTimeSpan"/>.</param>
+    /// <param name="cancellationToken">Cancels the cooperative wait.</param>
+    /// <param name="checkEveryMs">Non-negative polling interval.</param>
+    /// <returns>Whether the condition became true.</returns>
+    public bool SpinUntil(Func<bool> condition, TimeSpan timeout, CancellationToken cancellationToken, int checkEveryMs = 10)
+    {
+        ValidatePollingInterval(checkEveryMs);
+        TimeoutValidation.Validate(timeout, nameof(timeout));
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(condition);
+#else
+        if (condition == null)
+        {
+            throw new ArgumentNullException(nameof(condition));
+        }
+#endif
+        var watch = Stopwatch.StartNew();
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (condition())
+            {
+                return true;
+            }
+
+            if (timeout != Timeout.InfiniteTimeSpan && watch.Elapsed >= timeout)
+            {
+                return false;
+            }
+
+            var wait = timeout == Timeout.InfiniteTimeSpan
+                ? checkEveryMs
+                : Math.Min(checkEveryMs, Math.Max(0, (int)(timeout - watch.Elapsed).TotalMilliseconds));
+            Sleep(wait, cancellationToken);
+            Occasionally();
+        }
+    }
+
+    /// <summary>Waits on the executing thread while pumping messages and observing cancellation.</summary>
+    /// <param name="ms">Non-negative duration in milliseconds.</param>
+    /// <param name="cancellationToken">Cancels the cooperative wait.</param>
+    public void Sleep(int ms, CancellationToken cancellationToken)
+    {
+        ValidatePollingInterval(ms);
+        var watch = Stopwatch.StartNew();
+        do
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Occasionally();
+            var remaining = ms - watch.ElapsedMilliseconds;
+            if (remaining <= 0)
+            {
+                return;
+            }
+
+            // Bounded sleeps avoid allocating a token's native wait handle.
+            Thread.Sleep((int)Math.Min(10, remaining));
+        }
+        while (true);
     }
 
     /// <summary>
@@ -117,5 +190,13 @@ public sealed class StaYield(int intervalMs = 15)
 
         var ticks = (Stopwatch.Frequency * ms) / 1000L;
         return ticks < 1L ? 1L : ticks;
+    }
+
+    private static void ValidatePollingInterval(int checkEveryMs)
+    {
+        if (checkEveryMs < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(checkEveryMs), checkEveryMs, "Polling intervals must be non-negative.");
+        }
     }
 }

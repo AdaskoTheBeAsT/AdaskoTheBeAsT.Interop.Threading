@@ -64,7 +64,7 @@ public sealed class ComCalculator
 
 ## Queue many COM calculations on one STA thread
 
-Use `SingleThreadedApartmentTaskScheduler.RunAsync` when many callers should share one dedicated STA thread and execute sequentially.
+Inject and reuse an `ISingleThreadedApartmentTaskScheduler` instance when callers should share one dedicated STA thread. Its owner must dispose it after COM cleanup.
 
 ```csharp
 using AdaskoTheBeAsT.Interop.COM;
@@ -72,17 +72,19 @@ using AdaskoTheBeAsT.Interop.Threading;
 
 public sealed class ScheduledComCalculator
 {
+    private readonly ISingleThreadedApartmentTaskScheduler _scheduler;
     private readonly string _comDllPath;
     private readonly string _manifestPath;
 
-    public ScheduledComCalculator(string comDllPath, string manifestPath)
+    public ScheduledComCalculator(ISingleThreadedApartmentTaskScheduler scheduler, string comDllPath, string manifestPath)
     {
+        _scheduler = scheduler;
         _comDllPath = comDllPath;
         _manifestPath = manifestPath;
     }
 
     public Task<decimal> AddAsync(decimal left, decimal right, CancellationToken cancellationToken)
-        => SingleThreadedApartmentTaskScheduler.RunAsync(
+        => _scheduler.RunAsync(
             () =>
             {
                 decimal result = default;
@@ -105,7 +107,7 @@ public sealed class ScheduledComCalculator
             cancellationToken);
 
     public Task<decimal> MultiplyAsync(decimal left, decimal right, CancellationToken cancellationToken)
-        => SingleThreadedApartmentTaskScheduler.RunAsync(
+        => _scheduler.RunAsync(
             () =>
             {
                 decimal result = default;
@@ -151,7 +153,7 @@ using AdaskoTheBeAsT.Interop.Threading;
 public Task<IReadOnlyList<decimal>> CalculateBatchAsync(
     IReadOnlyList<(decimal Left, decimal Right)> inputs,
     CancellationToken cancellationToken)
-    => SingleThreadedApartmentTaskScheduler.RunAsync(
+    => _scheduler.RunAsync(
         (StaYield yield) =>
         {
             var results = new List<decimal>(inputs.Count);
@@ -186,7 +188,7 @@ public Task<IReadOnlyList<decimal>> CalculateBatchAsync(
 - `Executor.Execute(...)` activates the COM manifest context.
 - `SingleThreadedApartmentTask` guarantees a dedicated STA thread for one call.
 - `SingleThreadedApartmentTaskScheduler` guarantees serialized execution on one reusable STA thread.
-- `TimeoutAfterAsync` / `RunWithTimeoutAsync` lets you put an upper bound on COM calls that might stall.
+- `TimeoutAfterAsync` / `RunWithTimeoutAsync` bounds the caller's wait, not native execution. A stalled in-process COM call can continue indefinitely.
 
 ## Practical notes
 
@@ -194,3 +196,9 @@ public Task<IReadOnlyList<decimal>> CalculateBatchAsync(
 - Keep the COM DLL path and manifest path absolute and architecture-correct (`x86` vs `x64`).
 - `Executor.Execute(...)` returns `Result`, so capture the COM return value in a local variable inside the callback and then validate `Result.Success`.
 - If several COM calls must share the same logical STA workflow, keep them in the same scheduled operation instead of splitting them across unrelated tasks.
+- The batch method above belongs to the same instance-based service and uses its injected `_scheduler`.
+- Pass synchronous delegates only. An async lambda or `Unwrap()` does not preserve STA affinity across awaits.
+- Use `RunCooperativeAsync((yield, token) => ..., timeout, callerToken)` on the concrete scheduler when work can observe cancellation. The supplied token includes timeout and shutdown.
+- Release exclusively owned COM handles in `finally` on the same STA. Do not call `FinalReleaseComObject` on shared RCWs.
+- See the [compilable fake-component hosted service](../samples/StaService/README.md) for request cancellation, partial startup failure, reverse-order cleanup, and shutdown draining without third-party activation.
+- Pumping can invoke reentrant callbacks. Neither serialization nor a named mutex makes a COM object safe against arbitrary reentrancy.

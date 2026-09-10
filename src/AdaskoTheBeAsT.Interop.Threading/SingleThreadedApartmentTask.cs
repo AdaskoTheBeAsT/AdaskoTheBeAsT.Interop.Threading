@@ -9,8 +9,9 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 
 /// <summary>
 /// Runs delegates on a dedicated background STA thread.
-/// Each call creates a new thread, executes the supplied delegate there, and pumps any remaining messages before the thread exits.
+/// Each call owns one OLE-initialized thread. Task completion includes a bounded final pump and OLE cleanup.
 /// </summary>
+/// <remarks>Delegates must be synchronous. Neither async lambdas nor Unwrap preserve STA affinity across awaits.</remarks>
 #if NET8_0_OR_GREATER
 [SupportedOSPlatform("windows")]
 #endif
@@ -64,45 +65,7 @@ public static class SingleThreadedApartmentTask
         }
 #endif
 
-        if (cancellationToken.IsCancellationRequested)
-        {
-            return Task.FromCanceled<T>(cancellationToken);
-        }
-
-        var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var thread = new Thread(() =>
-        {
-            try
-            {
-                // If caller already cancelled, bail early
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var result = func();
-                tcs.TrySetResult(result);
-            }
-            catch (OperationCanceledException oce)
-            {
-                // Propagate cooperative cancellation
-                tcs.TrySetCanceled(oce.CancellationToken);
-            }
-            catch (Exception ex)
-            {
-                tcs.TrySetException(ex);
-            }
-            finally
-            {
-                // pump any remaining COM messages
-                NativeMethods.PumpPendingMessages();
-            }
-        })
-        {
-            // won't block process shutdown
-            IsBackground = true,
-            Name = "STA Task Thread",
-        };
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        return tcs.Task;
+        return RunAsync(func, cancellationToken, new StaPlatform());
     }
 
     /// <summary>
@@ -116,7 +79,97 @@ public static class SingleThreadedApartmentTask
     public static Task<T> RunWithTimeoutAsync<T>(
         TimeSpan timeSpan,
         Func<T> func,
-        CancellationToken cancellationToken) =>
-        RunAsync(func, cancellationToken)
-            .TimeoutAfterAsync(timeSpan, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        TimeoutValidation.Validate(timeSpan, nameof(timeSpan));
+        var source = RunAsync(func, cancellationToken);
+        TaskWait.ObserveFault(source);
+        return source.TimeoutAfterAsync(timeSpan, cancellationToken);
+    }
+
+    internal static Task<T> RunAsync<T>(Func<T> func, CancellationToken cancellationToken, StaPlatform platform)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled<T>(cancellationToken);
+        }
+
+        var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() => Execute(func, cancellationToken, platform, tcs))
+        {
+            IsBackground = true,
+            Name = "STA Task Thread",
+        };
+        platform.Start(thread);
+        return tcs.Task;
+    }
+
+    private static void Execute<T>(
+        Func<T> func, CancellationToken token, StaPlatform platform, TaskCompletionSource<T> completion)
+    {
+        var initialized = false;
+        var result = default(T)!;
+        Exception? failure = null;
+        try
+        {
+            token.ThrowIfCancellationRequested();
+            platform.Initialize();
+            initialized = true;
+            token.ThrowIfCancellationRequested();
+#pragma warning disable CC0031 // Validated by the public entry point.
+            result = func();
+#pragma warning restore CC0031
+            token.ThrowIfCancellationRequested();
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+        }
+        finally
+        {
+            if (initialized)
+            {
+                failure = Cleanup(platform, failure);
+            }
+        }
+
+        if (failure is OperationCanceledException canceled &&
+            (canceled.CancellationToken == token || token.IsCancellationRequested))
+        {
+            completion.TrySetCanceled(token);
+        }
+        else if (failure is not null)
+        {
+            completion.TrySetException(failure);
+        }
+        else
+        {
+            completion.TrySetResult(result);
+        }
+    }
+
+    private static Exception? Cleanup(StaPlatform platform, Exception? primary)
+    {
+        try
+        {
+            platform.Pump(preserveQuit: false);
+        }
+        catch (Exception ex)
+        {
+            primary ??= ex;
+        }
+        finally
+        {
+            try
+            {
+                platform.Uninitialize();
+            }
+            catch (Exception ex)
+            {
+                primary ??= ex;
+            }
+        }
+
+        return primary;
+    }
 }

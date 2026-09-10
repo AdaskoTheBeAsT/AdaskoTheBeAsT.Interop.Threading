@@ -9,6 +9,8 @@ using Xunit;
 
 namespace AdaskoTheBeAsT.Interop.Threading.Test;
 
+// Shutdown requests termination without waiting; these tests exercise that synchronous API.
+#pragma warning disable VSTHRD103
 #if NET8_0_OR_GREATER
 [SupportedOSPlatform("windows")]
 #endif

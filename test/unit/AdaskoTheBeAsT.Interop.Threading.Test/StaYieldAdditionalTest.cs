@@ -75,8 +75,10 @@ public class StaYieldAdditionalTest
         // slow runners) while still catching a regression where Sleep(-1)
         // would be misinterpreted as infinite and block indefinitely.
         var stopwatch = Stopwatch.StartNew();
+#pragma warning disable xUnit1051 // Preserve the legacy Sleep(ms <= 0) contract under test.
         y.Sleep(0);
         y.Sleep(-1);
+#pragma warning restore xUnit1051
         stopwatch.Stop();
 
         stopwatch.ElapsedMilliseconds.Should().BeLessThan(1000);

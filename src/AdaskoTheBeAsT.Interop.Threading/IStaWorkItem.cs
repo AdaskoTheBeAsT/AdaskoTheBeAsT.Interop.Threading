@@ -1,3 +1,4 @@
+using System;
 #if NET8_0_OR_GREATER
 using System.Runtime.Versioning;
 #endif
@@ -12,4 +13,6 @@ internal interface IStaWorkItem
     void Execute();
 
     void Cancel();
+
+    void Fail(Exception exception);
 }

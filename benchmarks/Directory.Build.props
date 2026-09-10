@@ -1,0 +1,7 @@
+<Project>
+  <Import Project="../Directory.Build.props" />
+  <ItemGroup>
+    <!-- BenchmarkDotNet and its generated harness execute Roslyn at runtime. -->
+    <PackageReference Update="Microsoft.CodeAnalysis.Common;Microsoft.CodeAnalysis.CSharp" ExcludeAssets="none" />
+  </ItemGroup>
+</Project>

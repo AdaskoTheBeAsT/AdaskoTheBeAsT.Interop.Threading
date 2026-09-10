@@ -1,7 +1,10 @@
 using System;
+using System.Linq;
 #if NET8_0_OR_GREATER
 using System.Runtime.Versioning;
 #endif
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
 using AwesomeAssertions;
@@ -14,6 +17,50 @@ namespace AdaskoTheBeAsT.Interop.Threading.Test;
 #endif
 public class MutexHelperAdditionalTest
 {
+    [Fact]
+    public void RunInMutex_ExistingMutex_PreservesAccessRules()
+    {
+        var name = "mutex_existing_acl_" + Guid.NewGuid();
+        using var mutex = new Mutex(initiallyOwned: false, name);
+        var original = mutex.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Access);
+
+        MutexHelper.RunInMutex(name, TimeSpan.FromSeconds(1), isGlobal: false, () => 0);
+
+        var current = mutex.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Access);
+        current.Should().Be(original);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RunInMutex_EachNewMutex_AllowsCrossUserAccess(bool isGlobal)
+    {
+        for (var i = 0; i < 2; i++)
+        {
+            var name = "mutex_acl_" + Guid.NewGuid();
+            var mutexName = isGlobal ? $"Global\\{name}" : name;
+
+            MutexHelper.RunInMutex(
+                name,
+                TimeSpan.FromSeconds(1),
+                isGlobal,
+                () =>
+                {
+                    using var mutex = new Mutex(initiallyOwned: false, mutexName);
+                    var rules = mutex.GetAccessControl()
+                        .GetAccessRules(includeExplicit: true, includeInherited: false, typeof(SecurityIdentifier))
+                        .Cast<MutexAccessRule>();
+                    var everyone = new SecurityIdentifier(WellKnownSidType.WorldSid, domainSid: null);
+
+                    rules.Should().Contain(rule =>
+                        rule.IdentityReference == everyone
+                        && rule.AccessControlType == AccessControlType.Allow
+                        && (rule.MutexRights & MutexRights.FullControl) == MutexRights.FullControl);
+                    return 0;
+                });
+        }
+    }
+
     [Fact]
     public void RunInMutex_NullFunc_Throws()
     {
@@ -64,11 +111,7 @@ public class MutexHelperAdditionalTest
         using var holderEntered = new ManualResetEventSlim(initialState: false);
         using var releaseHolder = new ManualResetEventSlim(initialState: false);
 
-#if NET8_0_OR_GREATER
         var testCancellationToken = TestContext.Current.CancellationToken;
-#else
-        var testCancellationToken = CancellationToken.None;
-#endif
 
         var holder = Task.Run(
             () => MutexHelper.RunInMutex<int>(

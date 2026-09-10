@@ -25,11 +25,7 @@ public class TaskExtensionTest
     [Fact]
     public async Task TimeoutAfterAsync_PropagatesResult_WhenInTimeAsync()
     {
-#if NET8_0_OR_GREATER
         var ct = TestContext.Current.CancellationToken;
-#else
-        var ct = CancellationToken.None;
-#endif
 
         var t = Task.Run(
             async () =>
