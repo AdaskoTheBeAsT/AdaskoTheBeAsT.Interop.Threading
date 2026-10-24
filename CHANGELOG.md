@@ -6,6 +6,18 @@ Entries before 4.0.0 are reconstructed from local Git tags and their source diff
 
 See the [migration guide](MIGRATION.md) for upgrade steps.
 
+## [4.0.1] - 2026-10-24
+
+### Changed
+
+- Bump `System.Threading.AccessControl` minimum patch ranges to `[10.0.13,11.0.0)` on `net10.0` and `[9.0.21,10.0.0)` on `net9.0`.
+- Upgrade build analyzers (`StyleCop.Analyzers`, `Microsoft.VisualStudio.Threading.Analyzers`, `AdaskoTheBeAsT.CodeCracker.CSharp`, `Meziantou.Analyzer`, `Microsoft.CodeAnalysis.NetAnalyzers`, `Roslynator.*`, `SonarAnalyzer.CSharp`) and unit-test packages (`Microsoft.NET.Test.Sdk`, `Microsoft.Testing.Extensions.GitHubActionsReport`, `Moq`, `xunit.v3`, `xunit.analyzers`, `xunit.runner.visualstudio`).
+- Remove `RestorePackagesWithLockFile` and project `packages.lock.json` files so dependency and analyzer updates do not drift across library, test, sample, and benchmark projects.
+- Disable `SA1121` in `AdaskoTheBeAsT.ruleset` to preserve explicit `IntPtr`/`UIntPtr` types in Win32 interop declarations, and apply targeted `#pragma warning disable` for `VSTHRD002`/`VSTHRD003` on task completion properties and post-`WhenAny` result extraction.
+- Simplify `.NET Framework` condition in `test/Directory.Build.props` and remove redundant runtime OS checks from Windows-only test fixtures.
+
+See [ADR 0003](docs/adr/0003-analyzer-baseline-and-lockfile-removal.md) for the rationale.
+
 ## [4.0.0]
 
 ### Breaking changes
@@ -94,6 +106,7 @@ See [ADR 0001](docs/adr/0001-hardening-timeouts-and-sta-scheduler.md) for the ra
 - First tagged release, providing named mutex execution, one-off STA tasks, a static STA scheduler, `StaYield`, and generic task timeout helpers.
 - Target `netstandard2.0`, `net8.0-windows`, `net9.0-windows`, and `net10.0-windows`.
 
+[4.0.1]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading/compare/v4.0.0...v4.0.1
 [4.0.0]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading/compare/v3.1.0...v4.0.0
 [3.1.0]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading/compare/v2.1.0...v3.0.0

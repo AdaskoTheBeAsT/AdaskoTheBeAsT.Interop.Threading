@@ -19,8 +19,6 @@ public class SingleThreadedApartmentTaskSchedulerExtraCoverageTest
     [Fact]
     public async Task RunAsync_AfterShutdown_ButBeforeDispose_ReturnsFaultedTaskAsync()
     {
-        SkipIfNotWindows();
-
         // Exercises the _isShuttingDown early return branch in RunAsync
         // which surfaces InvalidOperationException BEFORE the disposed check
         // would fire.
@@ -41,8 +39,6 @@ public class SingleThreadedApartmentTaskSchedulerExtraCoverageTest
     [Fact]
     public async Task RunAsync_AfterShutdown_FiniteTimeout_PathAsync()
     {
-        SkipIfNotWindows();
-
         // Same shutdown fault path but through the finite-timeout overload
         // (EnqueueAndOptionallyTimeoutAsync -> EnqueueWithCooperativeTimeoutAsync
         // gate) to cover both routing branches.
@@ -62,8 +58,6 @@ public class SingleThreadedApartmentTaskSchedulerExtraCoverageTest
     [Fact]
     public async Task RunAsync_NullWork_FiniteTimeoutOverload_ThrowsAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         var act = async () => await scheduler.RunAsync<int>(
@@ -77,8 +71,6 @@ public class SingleThreadedApartmentTaskSchedulerExtraCoverageTest
     [Fact]
     public async Task RunAsync_FuncTimeout_PreCanceledToken_ShortCircuitsAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
         using var cts = new CancellationTokenSource();
 #if NET8_0_OR_GREATER
@@ -100,8 +92,6 @@ public class SingleThreadedApartmentTaskSchedulerExtraCoverageTest
     [Fact]
     public async Task RunAsync_LargeTimeout_ThrowsArgumentOutOfRangeAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         // Upper-bound validation branch in RunAsync<T>(Func<T?>, TimeSpan, ct).
@@ -114,25 +104,5 @@ public class SingleThreadedApartmentTaskSchedulerExtraCoverageTest
 
         var assertion = await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
         assertion.And.ParamName.Should().Be("timeout");
-    }
-
-    private static void SkipIfNotWindows()
-    {
-        if (!IsWindows())
-        {
-            throw new PlatformNotSupportedException("Scheduler relies on Win32 message pumping; test is Windows-only.");
-        }
-    }
-
-    private static bool IsWindows()
-    {
-#if NET5_0_OR_GREATER
-        return OperatingSystem.IsWindows();
-#else
-        return Environment.OSVersion.Platform == PlatformID.Win32NT
-               || Environment.OSVersion.Platform == PlatformID.Win32S
-               || Environment.OSVersion.Platform == PlatformID.Win32Windows
-               || Environment.OSVersion.Platform == PlatformID.WinCE;
-#endif
     }
 }

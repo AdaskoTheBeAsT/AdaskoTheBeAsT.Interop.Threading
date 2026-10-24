@@ -19,8 +19,6 @@ public class SingleThreadedApartmentTaskCoverageTest
     [InlineData(int.MaxValue)]
     public async Task RunWithTimeoutAsync_InvalidTimeout_DoesNotStartWorkAsync(int milliseconds)
     {
-        SkipIfNotWindows();
-
         var invoked = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var act = async () => await SingleThreadedApartmentTask.RunWithTimeoutAsync(
             TimeSpan.FromMilliseconds(milliseconds),
@@ -37,8 +35,6 @@ public class SingleThreadedApartmentTaskCoverageTest
     [Fact]
     public async Task RunWithTimeoutAsync_InfiniteTimeout_ReturnsResultAsync()
     {
-        SkipIfNotWindows();
-
         var result = await SingleThreadedApartmentTask.RunWithTimeoutAsync(
             Timeout.InfiniteTimeSpan,
             () => 42,
@@ -50,8 +46,6 @@ public class SingleThreadedApartmentTaskCoverageTest
     [Fact]
     public async Task RunAsync_StaYieldOverload_ExecutesOnStaAndReturnsValueAsync()
     {
-        SkipIfNotWindows();
-
         // Exercises the Func<StaYield, T> overload (lines 22-30 of
         // SingleThreadedApartmentTask.cs) which is the "create fresh StaYield
         // per call" static entry point that the scheduler's instance API
@@ -71,8 +65,6 @@ public class SingleThreadedApartmentTaskCoverageTest
     [Fact]
     public Task RunAsync_StaYieldOverload_NullFunc_ThrowsAsync()
     {
-        SkipIfNotWindows();
-
         Func<Task> act = async () => await SingleThreadedApartmentTask.RunAsync<int>(
             (Func<StaYield, int>)null!,
             CancellationToken.None);
@@ -83,8 +75,6 @@ public class SingleThreadedApartmentTaskCoverageTest
     [Fact]
     public Task RunAsync_FuncOverload_NullFunc_ThrowsAsync()
     {
-        SkipIfNotWindows();
-
         // Exercises the null-guard branch of RunAsync<T>(Func<T>, ct)
         // (lines 49-50 of SingleThreadedApartmentTask.cs).
         Func<Task> act = async () => await SingleThreadedApartmentTask.RunAsync<int>(
@@ -97,8 +87,6 @@ public class SingleThreadedApartmentTaskCoverageTest
     [Fact]
     public async Task RunAsync_StaYieldOverload_PreCanceledToken_ReturnsCanceledTaskAsync()
     {
-        SkipIfNotWindows();
-
         using var cts = new CancellationTokenSource();
 #if NET8_0_OR_GREATER
         await cts.CancelAsync();
@@ -116,8 +104,6 @@ public class SingleThreadedApartmentTaskCoverageTest
     [Fact]
     public async Task RunWithTimeoutAsync_CompletesBeforeTimeout_ReturnsResultAsync()
     {
-        SkipIfNotWindows();
-
         // Exercises RunWithTimeoutAsync happy path (line 106 of
         // SingleThreadedApartmentTask.cs) which chains RunAsync ->
         // TimeoutAfterAsync when the delegate completes within the budget.
@@ -132,8 +118,6 @@ public class SingleThreadedApartmentTaskCoverageTest
     [Fact]
     public async Task RunWithTimeoutAsync_DelegateExceedsBudget_ThrowsTimeoutExceptionAsync()
     {
-        SkipIfNotWindows();
-
         // Exercises the path where TimeoutAfterAsync fires before the STA
         // delegate returns. Use a very large gap between the timeout budget
         // and the delegate duration so that slow/contended CI agents on
@@ -158,25 +142,5 @@ public class SingleThreadedApartmentTaskCoverageTest
         {
             release.Set();
         }
-    }
-
-    private static void SkipIfNotWindows()
-    {
-        if (!IsWindows())
-        {
-            throw new PlatformNotSupportedException("STA task relies on Win32 message pumping; test is Windows-only.");
-        }
-    }
-
-    private static bool IsWindows()
-    {
-#if NET5_0_OR_GREATER
-        return OperatingSystem.IsWindows();
-#else
-        return Environment.OSVersion.Platform == PlatformID.Win32NT
-               || Environment.OSVersion.Platform == PlatformID.Win32S
-               || Environment.OSVersion.Platform == PlatformID.Win32Windows
-               || Environment.OSVersion.Platform == PlatformID.WinCE;
-#endif
     }
 }

@@ -19,8 +19,6 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     [Fact]
     public void Ctor_NegativeDefaultTimeout_Throws()
     {
-        SkipIfNotWindows();
-
         // Note: TimeSpan.FromMilliseconds(-1) equals Timeout.InfiniteTimeSpan
         // in .NET, so we use -5ms to ensure the value is strictly negative
         // and NOT the infinite sentinel.
@@ -38,8 +36,6 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     [Fact]
     public async Task Ctor_NullOptions_UsesDefaultsAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler(options: null);
 
         // Observable default: the STA thread name equals
@@ -54,8 +50,6 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     [Fact]
     public async Task Ctor_WhitespaceThreadName_FallsBackToDefaultAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler(
             new SingleThreadedApartmentTaskSchedulerOptions { ThreadName = "   " });
 
@@ -70,8 +64,6 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     [Fact]
     public async Task RunAsync_StaYieldGeneric_ExecutesAndReturnsValueAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         var result = await scheduler.RunAsync<int>(
@@ -88,8 +80,6 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     [Fact]
     public async Task RunAsync_StaYieldAction_CompletesAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         var observed = 0;
@@ -108,8 +98,6 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     [Fact]
     public async Task RunAsync_StaYieldGeneric_NullWork_ThrowsAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         var act = async () => await scheduler.RunAsync<int>(
@@ -122,8 +110,6 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     [Fact]
     public async Task RunAsync_StaYieldAction_NullWork_ThrowsAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         var act = async () => await scheduler.RunAsync(
@@ -136,8 +122,6 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     [Fact]
     public async Task RunAsync_Func_NullFunc_ThrowsAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         var act = async () => await scheduler.RunAsync<int>(
@@ -150,8 +134,6 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     [Fact]
     public async Task RunAsync_StaYieldGeneric_PreCanceledToken_ReturnsCanceledTaskAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
         using var cts = new CancellationTokenSource();
 #if NET8_0_OR_GREATER
@@ -170,8 +152,6 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     [Fact]
     public async Task RunAsync_StaYieldAction_PreCanceledToken_ReturnsCanceledTaskAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
         using var cts = new CancellationTokenSource();
 #if NET8_0_OR_GREATER
@@ -190,8 +170,6 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     [Fact]
     public async Task RunAsync_Timeout_NegativeTimeout_ThrowsAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         var act = async () => await scheduler.RunAsync<int>(
@@ -206,8 +184,6 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     [Fact]
     public async Task RunAsync_Timeout_InfiniteTimeSpan_ReturnsResultAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         var result = await scheduler.RunAsync<int>(
@@ -221,8 +197,6 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     [Fact]
     public async Task RunAsync_AfterShutdown_ReturnsFaultedTaskAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         await scheduler.RunAsync<object?>(() => null, CancellationToken.None);
@@ -238,8 +212,6 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     [Fact]
     public void Shutdown_IsIdempotent()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         scheduler.Shutdown();
@@ -260,8 +232,6 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     [Fact]
     public async Task Shutdown_AfterDispose_DoesNotThrowAsync()
     {
-        SkipIfNotWindows();
-
         var scheduler = new SingleThreadedApartmentTaskScheduler();
         try
         {
@@ -289,8 +259,6 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     [Fact]
     public async Task Dispose_FromInsideWorkItem_DoesNotDeadlockAsync()
     {
-        SkipIfNotWindows();
-
         var scheduler = new SingleThreadedApartmentTaskScheduler();
         try
         {
@@ -339,8 +307,6 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     [Fact]
     public async Task RunAsync_WithCustomThreadName_UsesItAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler(
             new SingleThreadedApartmentTaskSchedulerOptions { ThreadName = "Custom-STA-Name" });
 
@@ -354,8 +320,6 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
     [Fact]
     public async Task RunAsync_MultipleTasksQueuedBeforeExecution_AllRunSequentiallyAsync()
     {
-        SkipIfNotWindows();
-
         const int count = 25;
         var executionOrder = new int[count];
         var executionStep = 0;
@@ -406,25 +370,5 @@ public class SingleThreadedApartmentTaskSchedulerAdditionalTest
 
         options.ThreadName.Should().Be(SingleThreadedApartmentTaskSchedulerOptions.DefaultThreadName);
         options.DefaultWorkItemTimeout.Should().Be(Timeout.InfiniteTimeSpan);
-    }
-
-    private static void SkipIfNotWindows()
-    {
-        if (!IsWindows())
-        {
-            throw new PlatformNotSupportedException("Scheduler relies on Win32 message pumping; test is Windows-only.");
-        }
-    }
-
-    private static bool IsWindows()
-    {
-#if NET5_0_OR_GREATER
-        return OperatingSystem.IsWindows();
-#else
-        return Environment.OSVersion.Platform == PlatformID.Win32NT
-               || Environment.OSVersion.Platform == PlatformID.Win32S
-               || Environment.OSVersion.Platform == PlatformID.Win32Windows
-               || Environment.OSVersion.Platform == PlatformID.WinCE;
-#endif
     }
 }

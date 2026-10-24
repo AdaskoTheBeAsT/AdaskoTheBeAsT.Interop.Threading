@@ -26,7 +26,7 @@ function Invoke-Checked([string] $Executable, [string[]] $Arguments, [int] $Dead
 }
 
 if ($Mode -ne 'Portable' -and -not $IsWindows) { throw "$Mode validation requires Windows and PowerShell 7." }
-Invoke-Checked dotnet @('restore', $solution, '--locked-mode')
+Invoke-Checked dotnet @('restore', $solution)
 if ($Mode -eq 'Portable') {
     Invoke-Checked dotnet @('test', '--project', $tests, '-c', $Configuration, '-f', 'net10.0', '--no-restore',
         '--filter', 'FullyQualifiedName~TaskExtension', '--report-xunit-trx')
@@ -51,7 +51,7 @@ try {
     }
     foreach ($sample in @('StaService', 'MutexProbe')) {
         $project = Join-Path $repo "samples/$sample/$sample.csproj"
-        Invoke-Checked dotnet @('restore', $project, '--locked-mode')
+        Invoke-Checked dotnet @('restore', $project)
         Invoke-Checked dotnet @('build', $project, '-c', $Configuration, '--no-restore')
     }
     Invoke-Checked dotnet @('run', '--project', (Join-Path $repo 'samples/StaService/StaService.csproj'),

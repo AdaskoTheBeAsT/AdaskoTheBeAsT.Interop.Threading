@@ -17,8 +17,6 @@ public class SingleThreadedApartmentTaskSchedulerTest
     [Fact]
     public async Task RunAsync_Generic_ExecutesOnSta_AndReturnsValueAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         var id = await scheduler.RunAsync(
@@ -35,8 +33,6 @@ public class SingleThreadedApartmentTaskSchedulerTest
     [Fact]
     public async Task RunAsync_Void_CompletesAndPumpsAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         var observed = 0;
@@ -54,8 +50,6 @@ public class SingleThreadedApartmentTaskSchedulerTest
     [Fact]
     public async Task RunAsync_ProcessesMultipleItems_InOrderAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         var step = 0;
@@ -83,8 +77,6 @@ public class SingleThreadedApartmentTaskSchedulerTest
     [Fact]
     public async Task RunAsync_PumpsBetweenItems_DoesNotHangAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
 #pragma warning disable AsyncFixer04
@@ -100,8 +92,6 @@ public class SingleThreadedApartmentTaskSchedulerTest
     [Fact]
     public async Task RunAsync_PropagatesOriginalExceptionAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         var act = async () =>
@@ -116,8 +106,6 @@ public class SingleThreadedApartmentTaskSchedulerTest
     [Fact]
     public async Task RunAsync_FastFails_WhenAlreadyCanceledAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         using var cts = new CancellationTokenSource();
@@ -136,8 +124,6 @@ public class SingleThreadedApartmentTaskSchedulerTest
     [Fact]
     public async Task RunAsync_AfterDispose_ThrowsAsync()
     {
-        SkipIfNotWindows();
-
         var scheduler = new SingleThreadedApartmentTaskScheduler();
         try
         {
@@ -157,8 +143,6 @@ public class SingleThreadedApartmentTaskSchedulerTest
     [Fact]
     public async Task Dispose_IsIdempotentAsync()
     {
-        SkipIfNotWindows();
-
         var scheduler = new SingleThreadedApartmentTaskScheduler();
         try
         {
@@ -178,8 +162,6 @@ public class SingleThreadedApartmentTaskSchedulerTest
     [Fact]
     public async Task MultipleSchedulers_AreIndependentAsync()
     {
-        SkipIfNotWindows();
-
         using var a = new SingleThreadedApartmentTaskScheduler(
             new SingleThreadedApartmentTaskSchedulerOptions { ThreadName = "STA-A" });
         using var b = new SingleThreadedApartmentTaskScheduler(
@@ -194,8 +176,6 @@ public class SingleThreadedApartmentTaskSchedulerTest
     [Fact]
     public async Task RunAsync_WithTimeout_ThrowsTimeoutExceptionWhenWorkTakesTooLongAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         var act = async () => await scheduler.RunAsync<int>(
@@ -215,8 +195,6 @@ public class SingleThreadedApartmentTaskSchedulerTest
     [Fact]
     public async Task RunAsync_WithTimeout_ReturnsResultWhenInTimeAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         var result = await scheduler.RunAsync<int>(
@@ -230,8 +208,6 @@ public class SingleThreadedApartmentTaskSchedulerTest
     [Fact]
     public async Task RunAsync_DefaultTimeoutFromOptions_IsAppliedAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler(
             new SingleThreadedApartmentTaskSchedulerOptions
             {
@@ -254,8 +230,6 @@ public class SingleThreadedApartmentTaskSchedulerTest
     [Fact]
     public async Task OperationCanceledException_FromWork_SurfacesAsCanceledTaskAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         // Use a non-canceled token so RunAsync does NOT short-circuit on the
@@ -274,8 +248,6 @@ public class SingleThreadedApartmentTaskSchedulerTest
     [Fact]
     public async Task Cancellation_DuringExecution_SurfacesAsCanceledTaskAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
         using var cts = new CancellationTokenSource();
         using var started = new ManualResetEventSlim(initialState: false);
@@ -312,26 +284,5 @@ public class SingleThreadedApartmentTaskSchedulerTest
         var act = async () => await task;
 #pragma warning restore VSTHRD003
         await act.Should().ThrowAsync<OperationCanceledException>();
-    }
-
-    private static void SkipIfNotWindows()
-    {
-        if (!IsWindows())
-        {
-            throw new PlatformNotSupportedException("Scheduler relies on Win32 message pumping; test is Windows-only.");
-        }
-    }
-
-    private static bool IsWindows()
-    {
-#if NET5_0_OR_GREATER
-        return OperatingSystem.IsWindows();
-#else
-        // For older .NET versions, use PlatformID
-        return Environment.OSVersion.Platform == PlatformID.Win32NT
-               || Environment.OSVersion.Platform == PlatformID.Win32S
-               || Environment.OSVersion.Platform == PlatformID.Win32Windows
-               || Environment.OSVersion.Platform == PlatformID.WinCE;
-#endif
     }
 }

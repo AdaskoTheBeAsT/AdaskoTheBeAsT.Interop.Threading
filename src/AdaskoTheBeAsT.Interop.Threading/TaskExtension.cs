@@ -35,9 +35,11 @@ public static class TaskExtension
             return Task.FromException<TResult>(ex);
         }
 
+#pragma warning disable VSTHRD002
         return task.IsCompleted || (timeout == Timeout.InfiniteTimeSpan && !cancellationToken.CanBeCanceled)
             ? task
             : TaskWait.StartAsync(task, timeout, static source => ((Task<TResult>)source).GetAwaiter().GetResult(), onWaitAbandoned: null, cancellationToken);
+#pragma warning restore VSTHRD002
     }
 
     /// <summary>

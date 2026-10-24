@@ -288,12 +288,13 @@ What's new, what changed, and what might need your attention: [CHANGELOG.md](htt
 
 ## 🧪 Development and validation
 
-Use PowerShell 7 and the .NET SDK selected by `global.json`. Read [validation notes and limitations](https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading/blob/main/docs/validation.md) before running the scripts: the older nine-target harness is not yet aligned with the six-target 4.0 configuration.
+Use PowerShell 7 and the .NET SDK selected by `global.json`. Read [validation notes and limitations](https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading/blob/main/docs/validation.md) before running `./scripts/Invoke-Validation.ps1`.
 
 Additional references:
 
 - [ADR 0001: Timeout cancellation and scheduler dispatch](https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading/blob/main/docs/adr/0001-hardening-timeouts-and-sta-scheduler.md)
 - [ADR 0002: STA lifetime and cancellation contracts](https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading/blob/main/docs/adr/0002-sta-lifetime-and-cancellation-contracts.md)
+- [ADR 0003: Analyzer baseline, native pointer types, and lockfile removal](https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading/blob/main/docs/adr/0003-analyzer-baseline-and-lockfile-removal.md)
 - [Benchmarks](https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading/blob/main/benchmarks/README.md)
 
 ### 💬 Found an edge case?
