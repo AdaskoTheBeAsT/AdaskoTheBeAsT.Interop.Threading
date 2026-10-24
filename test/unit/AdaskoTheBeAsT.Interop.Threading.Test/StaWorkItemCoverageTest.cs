@@ -39,8 +39,6 @@ public class StaWorkItemCoverageTest
     [Fact]
     public async Task RunAsync_TokenCanceledDuringWork_DelegateIgnores_SurfacesCanceledAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
         using var cts = new CancellationTokenSource();
         using var canceledSignal = new ManualResetEventSlim(initialState: false);
@@ -99,8 +97,6 @@ public class StaWorkItemCoverageTest
     [Fact]
     public async Task Shutdown_WhilePending_CancelsDequeuedWorkItemsAsync()
     {
-        SkipIfNotWindows();
-
         var scheduler = new SingleThreadedApartmentTaskScheduler();
         using var firstRunning = new ManualResetEventSlim(initialState: false);
         using var releaseFirst = new ManualResetEventSlim(initialState: false);
@@ -196,25 +192,5 @@ public class StaWorkItemCoverageTest
             token,
             () => GC.KeepAlive(payload));
         return (item, new WeakReference(payload));
-    }
-
-    private static void SkipIfNotWindows()
-    {
-        if (!IsWindows())
-        {
-            throw new PlatformNotSupportedException("Scheduler relies on Win32 message pumping; test is Windows-only.");
-        }
-    }
-
-    private static bool IsWindows()
-    {
-#if NET5_0_OR_GREATER
-        return OperatingSystem.IsWindows();
-#else
-        return Environment.OSVersion.Platform == PlatformID.Win32NT
-               || Environment.OSVersion.Platform == PlatformID.Win32S
-               || Environment.OSVersion.Platform == PlatformID.Win32Windows
-               || Environment.OSVersion.Platform == PlatformID.WinCE;
-#endif
     }
 }

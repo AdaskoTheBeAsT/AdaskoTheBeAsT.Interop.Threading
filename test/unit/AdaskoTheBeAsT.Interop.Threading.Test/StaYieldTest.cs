@@ -16,7 +16,7 @@ public class StaYieldTest
     public void Occasionally_IsSafeToCall_Often()
     {
         var y = new StaYield();
-        for (int i = 0; i < 20; i++)
+        for (var i = 0; i < 20; i++)
         {
             y.Occasionally();
         }

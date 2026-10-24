@@ -82,7 +82,8 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
         {
             IsBackground = true,
             Name = string.IsNullOrWhiteSpace(effective.ThreadName)
-                ? SingleThreadedApartmentTaskSchedulerOptions.DefaultThreadName : effective.ThreadName,
+                ? SingleThreadedApartmentTaskSchedulerOptions.DefaultThreadName
+                : effective.ThreadName,
         };
         try
         {
@@ -104,8 +105,10 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
         WaitForThreadInitialization(initializationTimeout);
     }
 
+#pragma warning disable VSTHRD003
     /// <inheritdoc />
     public Task Completion => _completion.Task;
+#pragma warning restore VSTHRD003
 
     /// <summary>Gets the number of pending items, excluding the currently executing item.</summary>
     public int PendingWorkItemCount
@@ -352,6 +355,7 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
         }
 
         TraceWork(id, "queued", 0);
+#pragma warning disable VSTHRD002
         var wait = timeout == Timeout.InfiniteTimeSpan
             ? item.Task
             : TaskWait.StartAsync(
@@ -360,6 +364,7 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
                 static source => ((Task<T?>)source).GetAwaiter().GetResult(),
                 item.CancelPending,
                 callerToken);
+#pragma warning restore VSTHRD002
         StartFinishWait(item, wait, timeoutCts, linked, id, admitted);
         return wait;
     }

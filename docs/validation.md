@@ -2,7 +2,7 @@
 
 ## Current 4.0 configuration
 
-The working tree now defaults to `Version=4.0.0` and targets **six frameworks**:
+The working tree now defaults to `Version=4.0.1` and targets **six frameworks**:
 `net10.0`, `net9.0`, `net8.0`, `net481`, `net48`, and `net472`.
 `global.json` selects SDK **10.0.401** and the Microsoft.Testing.Platform runner.
 See the [migration guide](../MIGRATION.md) for the removed targets and behavior
@@ -14,20 +14,19 @@ with Microsoft.Testing.Platform arguments and xUnit TRX reports.
 
 - The current build files do not enable the earlier SDK package/API validation
   against 3.1.0. Do not infer API compatibility from those historical results.
-- Lockfiles must match the current framework and dependency inputs before a
-  locked restore can pass.
+- Package lockfiles are no longer used; `dotnet restore` resolves the current
+  framework and dependency inputs directly.
 
-For the current library, start with a locked restore and build from the repository
+For the current library, start with a restore and build from the repository
 root:
 
 ```powershell
 $library = 'src/AdaskoTheBeAsT.Interop.Threading/AdaskoTheBeAsT.Interop.Threading.csproj'
-dotnet restore $library --locked-mode
+dotnet restore $library
 dotnet build $library -c Release --no-restore -p:ContinuousIntegrationBuild=true
 ```
 
-Check each exit code before continuing. A failed locked restore requires review
-of the dependency changes, not silently bypassing locked mode. Before release,
+Check each exit code before continuing. Before release,
 rerun the six-target matrix and the supported x86 target, and record fresh
 package/API compatibility evidence.
 

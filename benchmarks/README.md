@@ -5,7 +5,7 @@ shipping solution/package. Build it with the same analyzer policy as the library
 
 ```powershell
 $project = 'benchmarks/Threading.Benchmarks/Threading.Benchmarks.csproj'
-dotnet restore $project --locked-mode
+dotnet restore $project
 dotnet build $project -c Release --no-restore
 # Smoke check only, not statistically useful performance results:
 dotnet run --project $project -c Release --no-build -- --job Dry --filter '*'

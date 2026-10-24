@@ -43,7 +43,9 @@ internal sealed class StaWorkItem<T> : IStaWorkItem
             : default;
     }
 
+#pragma warning disable VSTHRD003
     public Task<T?> Task => _taskCompletionSource.Task;
+#pragma warning restore VSTHRD003
 
     public void Execute()
     {

@@ -18,8 +18,6 @@ public class SingleThreadedApartmentTaskSchedulerCoverageTest
     [Fact]
     public async Task RunAsync_Func_WithDefaultTimeoutInfinite_DelegatesToInfiniteBranchAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         // Exercises the RunAsync<T>(Func<T?>, CancellationToken) convenience
@@ -33,8 +31,6 @@ public class SingleThreadedApartmentTaskSchedulerCoverageTest
     [Fact]
     public async Task RunAsync_Func_PreCanceledToken_ReturnsCanceledTaskAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
         using var cts = new CancellationTokenSource();
 #if NET8_0_OR_GREATER
@@ -57,8 +53,6 @@ public class SingleThreadedApartmentTaskSchedulerCoverageTest
     [Fact]
     public async Task RunAsync_WithFiniteTimeout_CompletesBeforeTimeoutAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         // Exercises the finite-timeout branch where the work item finishes
@@ -82,8 +76,6 @@ public class SingleThreadedApartmentTaskSchedulerCoverageTest
     [Fact]
     public async Task RunAsync_WithFiniteTimeout_TimesOut_ThrowsTimeoutExceptionAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         // Exercises the cooperative timeout path: the delegate ignores its
@@ -111,8 +103,6 @@ public class SingleThreadedApartmentTaskSchedulerCoverageTest
     [Fact]
     public async Task RunAsync_WithFiniteTimeout_CallerCancelsFirst_ThrowsOperationCanceledAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
         using var cts = new CancellationTokenSource();
         using var started = new ManualResetEventSlim(initialState: false);
@@ -146,8 +136,6 @@ public class SingleThreadedApartmentTaskSchedulerCoverageTest
     [Fact]
     public async Task RunAsync_Work_ThrowsExceptionAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
 
         // Exercises the StaWorkItem generic exception-catch branch which
@@ -163,8 +151,6 @@ public class SingleThreadedApartmentTaskSchedulerCoverageTest
     [Fact]
     public async Task RunAsync_Work_ThrowsOce_WithMatchingToken_SurfacesCanceledAsync()
     {
-        SkipIfNotWindows();
-
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
         using var cts = new CancellationTokenSource();
 
@@ -196,8 +182,6 @@ public class SingleThreadedApartmentTaskSchedulerCoverageTest
     [Fact]
     public async Task Dispose_Idempotent_DoesNotThrowAsync()
     {
-        SkipIfNotWindows();
-
         var scheduler = new SingleThreadedApartmentTaskScheduler();
         await scheduler.RunAsync<object?>(() => null, CancellationToken.None);
 
@@ -212,8 +196,6 @@ public class SingleThreadedApartmentTaskSchedulerCoverageTest
     [Fact]
     public async Task RunAsync_AfterDispose_ReturnsFaultedTaskAsync()
     {
-        SkipIfNotWindows();
-
         var scheduler = new SingleThreadedApartmentTaskScheduler();
         await scheduler.RunAsync<object?>(() => null, CancellationToken.None);
         scheduler.Dispose();
@@ -261,25 +243,5 @@ public class SingleThreadedApartmentTaskSchedulerCoverageTest
             TimeSpan.FromSeconds(5),
             callerToken);
 #pragma warning restore xUnit1051
-    }
-
-    private static void SkipIfNotWindows()
-    {
-        if (!IsWindows())
-        {
-            throw new PlatformNotSupportedException("Scheduler relies on Win32 message pumping; test is Windows-only.");
-        }
-    }
-
-    private static bool IsWindows()
-    {
-#if NET5_0_OR_GREATER
-        return OperatingSystem.IsWindows();
-#else
-        return Environment.OSVersion.Platform == PlatformID.Win32NT
-               || Environment.OSVersion.Platform == PlatformID.Win32S
-               || Environment.OSVersion.Platform == PlatformID.Win32Windows
-               || Environment.OSVersion.Platform == PlatformID.WinCE;
-#endif
     }
 }
