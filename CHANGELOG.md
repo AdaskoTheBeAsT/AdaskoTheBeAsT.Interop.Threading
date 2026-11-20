@@ -6,6 +6,36 @@ Entries before 4.0.0 are reconstructed from local Git tags and their source diff
 
 See the [migration guide](MIGRATION.md) for upgrade steps.
 
+## [5.0.0] - 2026-11-17
+
+### Breaking changes
+
+- Target `.NET 11` (`net11.0`) and remove `net9.0` and `net8.0`. Retain `net10.0`, `net481`, `net48`, and `net472`.
+- Verify native COM STA apartment state by default (`VerifyNativeStaApartment = true`) on both `SingleThreadedApartmentTaskScheduler` and `SingleThreadedApartmentTask` (`Run` / `RunAsync`). After `OleInitialize`, the worker checks `combase!CoGetApartmentType`, recovers `CO_E_NOTINITIALIZED` via balanced `CoInitializeEx(COINIT_APARTMENTTHREADED)`, and fails with `InvalidOperationException` if the worker thread is in native MTA instead of STA.
+- Reject negative `PostWorkItemMessagePumpBatchSize`, negative `MaxStackSize`, and non-positive `WindowsThreadLocaleId` values during option validation with `ArgumentOutOfRangeException`.
+
+### Added
+
+- Synchronous one-off STA execution via `SingleThreadedApartmentTask.Run` (`Action`, `Action<StaYield>`, `Func<T>`, `Func<StaYield, T>`), `StaExecutionMode` (`DedicatedThread` default and `ReuseCurrentStaThread` inline fast path preserving caller `WM_QUIT`), and `SingleThreadedApartmentTaskOptions`, always joining dedicated STA threads before returning so enclosing `MutexHelper.RunInMutex` scopes never release cross-process locks early.
+- `Action` (`void`) overloads on `SingleThreadedApartmentTask` (`RunAsync`, `RunWithTimeoutAsync`), `MutexHelper.RunInMutex` (all four overload shapes), and `SingleThreadedApartmentTaskSchedulerExtensions.RunAsync` (preserving binary and source compatibility for existing `ISingleThreadedApartmentTaskScheduler` implementations).
+- Portable `ThreadAffinity` (`readonly struct`, zero heap allocation, closed failure on `default(ThreadAffinity)`) and Windows `StaApartment` / `StaApartmentScope` (`IsCurrentThreadSta`, `VerifyCurrentThreadSta`, and thread-affinitized, idempotent `EnterScope(bool initializeOle = false)`).
+- Managed culture and Win32 kernel thread locale pinning/hygiene via `SingleThreadedApartmentTaskSchedulerOptions.ThreadCulture`, `ThreadUICulture`, `WindowsThreadLocaleId` (`kernel32!SetThreadLocale` applied before `CreateThreadScope`), `ResetThreadCultureAndLocaleAfterWorkItem`, and standalone `ThreadCultureScope.Enter`.
+- Cooperative linked-deadline `TaskExtension.TimeoutAfterAsync(Func<CancellationToken, Task>, ...)` and `Func<CancellationToken, Task<TResult>>` overloads across all five target frameworks, plus `#if NET8_0_OR_GREATER` (`net10.0` and `net11.0`) `ValueTask` and `ValueTask<TResult>` overloads enforcing zero-allocation synchronous fast paths and strict single consumption of pooled `IValueTaskSource` instances with zero added NuGet dependencies.
+- Configurable `MaxStackSize` (`int`, default `0`) on `SingleThreadedApartmentTaskSchedulerOptions` and `SingleThreadedApartmentTaskOptions` for deep 32-bit native Fortran/Delphi/VB6/PowerBASIC stack frames.
+- `SingleThreadedApartmentTaskSchedulerOptions.BeforeThreadStart` (`Action?`) to run synchronous host preparation (such as `NanoServerOptions.RefreshStaState`) on the constructing thread after option snapshotting and before `Thread.Start()`.
+- `SingleThreadedApartmentTaskSchedulerOptions.VerifyNativeStaApartment` (`bool`, default `true`) to control native COM STA apartment verification and `CO_E_NOTINITIALIZED` recovery.
+- `SingleThreadedApartmentTaskSchedulerOptions.CreateThreadScope` (`Func<IDisposable?>?`) to create a thread-affinitized scope once on the owned STA thread before work runs and dispose it once on that exact STA thread during shutdown.
+- Opt-in `SingleThreadedApartmentTaskSchedulerOptions.PostWorkItemMessagePumpBatchSize` (`int`, default `0`) and `FreeUnusedComLibrariesOnShutdown` (`bool`, default `false`) for bounded post-work-item and shutdown message pumping (`WM_QUIT`-preserving) plus `CoFreeUnusedLibrariesEx(0, 0)` teardown ordering.
+- Opt-in `SingleThreadedApartmentTaskSchedulerOptions.ResetFloatingPointMaskAfterWorkItem` (`bool`, default `false`) on Windows `x86` (`Architecture.X86`) to clear pending x87/SSE status flags (`ucrtbase!_clearfp`) and restore all six floating-point exception masks (`_MCW_EM` via `ucrtbase!__control87_2`) after `CreateThreadScope` and each work item without altering callers' rounding or precision modes.
+- Comprehensive Portable, Windows x64, and Windows x86 contract tests covering synchronous STA execution, `MutexHelper` + `SingleThreadedApartmentTask.Run` non-overlap under cancellation, `ThreadAffinity`, `StaApartmentScope`, culture and `SetThreadLocale` hygiene, single-consumption `IValueTaskSource` and cooperative deadline timeouts, `MaxStackSize` deep stack frames, native apartment verification, `CreateThreadScope`, post-work pumping, and 32-bit `win-x86` FPU trap poisoning (`scripts/Test-FpuProcess.ps1`).
+
+### Changed
+
+- Upgrade SDK to `11.0.100`, C# `LangVersion` to `14.0`, `System.Threading.AccessControl` ranges (`[11.0.0,12.0.0)` for `net11.0` and `.NET Framework`, `[10.0.15,11.0.0)` for `net10.0`), build analyzers, and `xunit.v3` (`4.0.3`) test packages.
+- Expand [COM and Execution integration guidance](docs/using-with-adaskothebeast-interop-com.md) with Nano Server `BeforeThreadStart` wiring, `CreateThreadScope` COM activation scopes, cross-process `MutexHelper.RunInMutex` + `SingleThreadedApartmentTask.Run` composition, `ExecutionWorkerPool<TSession>` session guards (`ThreadAffinity` + `StaApartment.EnterScope` + `ThreadCultureScope`), culture/`SetThreadLocale`/`MaxStackSize` configuration, and explicit non-preemption timeout/cancellation contracts.
+
+See [ADR 0004](docs/adr/0004-net11-target-baseline-and-major-version-5.md), [ADR 0005](docs/adr/0005-native-sta-verification-and-thread-scope-lifecycle.md), [ADR 0006](docs/adr/0006-post-work-message-pumping-and-com-library-cleanup.md), [ADR 0007](docs/adr/0007-windows-x86-floating-point-hygiene.md), [ADR 0008](docs/adr/0008-synchronous-sta-execution-and-apartment-scopes.md), [ADR 0009](docs/adr/0009-sta-thread-culture-and-windows-locale-hygiene.md), and [ADR 0010](docs/adr/0010-valuetask-and-cooperative-deadline-timeouts.md) for the rationale.
+
 ## [4.0.1] - 2026-10-24
 
 ### Changed
@@ -106,6 +136,7 @@ See [ADR 0001](docs/adr/0001-hardening-timeouts-and-sta-scheduler.md) for the ra
 - First tagged release, providing named mutex execution, one-off STA tasks, a static STA scheduler, `StaYield`, and generic task timeout helpers.
 - Target `netstandard2.0`, `net8.0-windows`, `net9.0-windows`, and `net10.0-windows`.
 
+[5.0.0]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading/compare/v4.0.1...v5.0.0
 [4.0.1]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading/compare/v4.0.0...v4.0.1
 [4.0.0]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading/compare/v3.1.0...v4.0.0
 [3.1.0]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading/compare/v3.0.0...v3.1.0

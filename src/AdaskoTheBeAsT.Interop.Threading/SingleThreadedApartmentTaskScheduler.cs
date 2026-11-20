@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 #if NET8_0_OR_GREATER
 using System.Runtime.Versioning;
 #endif
@@ -29,20 +30,32 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
 #endif
     [SuppressMessage("Usage", "CA2213:Disposable fields should be disposed", Justification = "Owned by the worker after Start, constructor otherwise.")]
     [SuppressMessage("IDisposableAnalyzers", "IDISP002:Dispose member", Justification = "The worker owns native handles after Start.")]
-    private readonly AutoResetEvent _workAvailable = null!;
+    private readonly AutoResetEvent _workAvailable;
     [SuppressMessage("Usage", "CA2213:Disposable fields should be disposed", Justification = "Owned by the worker after Start, constructor otherwise.")]
-    private readonly ManualResetEvent _shutdownEvent = null!;
+    private readonly ManualResetEvent _shutdownEvent;
     [SuppressMessage("Usage", "CA2213:Disposable fields should be disposed", Justification = "Disposed after worker exit and the last shutdown signal lease.")]
     [SuppressMessage("IDisposableAnalyzers", "IDISP002:Dispose member", Justification = "Disposed after worker exit and cancellation lease completion.")]
-    private readonly CancellationTokenSource _shutdownCts = null!;
+    private readonly CancellationTokenSource _shutdownCts;
     private readonly Thread _thread;
     private readonly StaPlatform _platform;
     private readonly TimeSpan _defaultTimeout;
     private readonly int? _maximumPending;
+    private readonly int _postWorkItemPumpBatchSize;
     private readonly bool _diagnostics;
+    private readonly bool _verifyNativeStaApartment;
+    private readonly Func<IDisposable?>? _createThreadScope;
+    private readonly bool _freeUnusedComLibrariesOnShutdown;
+    private readonly bool _resetFloatingPointMaskAfterWorkItem;
+    private readonly CultureInfo? _threadCulture;
+    private readonly CultureInfo? _threadUICulture;
+    private readonly uint? _windowsThreadLocaleId;
+    private readonly bool _resetThreadCultureAndLocaleAfterWorkItem;
     private readonly int _schedulerId = Interlocked.Increment(ref _nextSchedulerId);
     private readonly TaskCompletionSource<bool> _threadReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource<bool> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private CultureInfo? _baselineCulture;
+    private CultureInfo? _baselineUICulture;
+    private uint _baselineWindowsLocaleId;
     private volatile bool _isShuttingDown;
     private Exception? _terminalException;
     private bool _workerExited;
@@ -67,41 +80,36 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
         SingleThreadedApartmentTaskSchedulerOptions? options, StaPlatform platform, TimeSpan initializationTimeout)
     {
         var effective = options ?? new SingleThreadedApartmentTaskSchedulerOptions();
-        TimeoutValidation.Validate(effective.DefaultWorkItemTimeout, nameof(options));
-        TimeoutValidation.Validate(initializationTimeout, nameof(initializationTimeout));
-        if (effective.MaximumPendingWorkItems is <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(options), "MaximumPendingWorkItems must be positive or null.");
-        }
-
+        var beforeThreadStart = effective.BeforeThreadStart;
+        var maxStackSize = effective.MaxStackSize;
+        var rawWindowsLocaleId = effective.WindowsThreadLocaleId;
         _defaultTimeout = effective.DefaultWorkItemTimeout;
         _maximumPending = effective.MaximumPendingWorkItems;
+        _postWorkItemPumpBatchSize = effective.PostWorkItemMessagePumpBatchSize;
         _diagnostics = effective.EnableDiagnostics;
+        _verifyNativeStaApartment = effective.VerifyNativeStaApartment;
+        _createThreadScope = effective.CreateThreadScope;
+        _freeUnusedComLibrariesOnShutdown = effective.FreeUnusedComLibrariesOnShutdown;
+        _resetFloatingPointMaskAfterWorkItem = effective.ResetFloatingPointMaskAfterWorkItem;
+        _threadCulture = effective.ThreadCulture is null ? null : CultureInfo.ReadOnly(effective.ThreadCulture);
+        _threadUICulture = effective.ThreadUICulture is null ? null : CultureInfo.ReadOnly(effective.ThreadUICulture);
+        _resetThreadCultureAndLocaleAfterWorkItem = effective.ResetThreadCultureAndLocaleAfterWorkItem;
         _platform = platform;
-        _thread = new Thread(ThreadEntry)
-        {
-            IsBackground = true,
-            Name = string.IsNullOrWhiteSpace(effective.ThreadName)
-                ? SingleThreadedApartmentTaskSchedulerOptions.DefaultThreadName
-                : effective.ThreadName,
-        };
-        try
-        {
-            _workAvailable = new AutoResetEvent(initialState: false);
-            _shutdownEvent = new ManualResetEvent(initialState: false);
-            _shutdownCts = new CancellationTokenSource();
-            _platform.Start(_thread);
-        }
-        catch
-        {
-            _workAvailable?.Dispose();
-            _shutdownEvent?.Dispose();
-            _shutdownCts?.Dispose();
-            throw;
-        }
-
+        ValidateConstructorArguments(
+            _defaultTimeout,
+            _maximumPending,
+            _postWorkItemPumpBatchSize,
+            maxStackSize,
+            rawWindowsLocaleId,
+            initializationTimeout,
+            nameof(options));
+        _windowsThreadLocaleId = rawWindowsLocaleId.HasValue ? (uint)rawWindowsLocaleId.Value : null;
+        _thread = CreateWorkerThread(effective.ThreadName, maxStackSize);
+        beforeThreadStart?.Invoke();
+        (_workAvailable, _shutdownEvent, _shutdownCts) = CreateWorkerSynchronization();
         TaskWait.ObserveFault(_completion.Task);
         TaskWait.ObserveFault(_threadReady.Task);
+        StartWorkerThread();
         WaitForThreadInitialization(initializationTimeout);
     }
 
@@ -252,6 +260,40 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
         }
     }
 
+    private static void ValidateConstructorArguments(
+        TimeSpan defaultTimeout,
+        int? maximumPending,
+        int postWorkItemPumpBatchSize,
+        int maxStackSize,
+        int? windowsThreadLocaleId,
+        TimeSpan initializationTimeout,
+        string optionsParameterName)
+    {
+#pragma warning disable S3236 // Preserve the public constructor parameter name through this shared guard.
+        TimeoutValidation.Validate(defaultTimeout, optionsParameterName);
+        TimeoutValidation.Validate(initializationTimeout, nameof(initializationTimeout));
+        if (maximumPending is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(optionsParameterName, "MaximumPendingWorkItems must be positive or null.");
+        }
+
+        if (postWorkItemPumpBatchSize < 0)
+        {
+            throw new ArgumentOutOfRangeException(optionsParameterName, "PostWorkItemMessagePumpBatchSize must be non-negative.");
+        }
+
+        if (maxStackSize < 0)
+        {
+            throw new ArgumentOutOfRangeException(optionsParameterName, "MaxStackSize must be non-negative.");
+        }
+
+        if (windowsThreadLocaleId is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(optionsParameterName, "WindowsThreadLocaleId must be positive or null.");
+        }
+#pragma warning restore S3236
+    }
+
     private static void ValidateWork(Delegate work, string parameterName)
     {
 #if NET8_0_OR_GREATER
@@ -282,6 +324,60 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
         {
             // Cancellation callbacks belong to callers; they cannot kill the worker.
             Debug.WriteLine("A cooperative cancellation callback failed.");
+        }
+    }
+
+#pragma warning disable CA2000, IDISP001 // Ownership transfers to fields and worker teardown once started.
+    private static (AutoResetEvent WorkAvailable, ManualResetEvent ShutdownEvent, CancellationTokenSource ShutdownCts) CreateWorkerSynchronization()
+    {
+        var workAvailable = new AutoResetEvent(initialState: false);
+        try
+        {
+            var shutdownEvent = new ManualResetEvent(initialState: false);
+            try
+            {
+                var shutdownCts = new CancellationTokenSource();
+                return (workAvailable, shutdownEvent, shutdownCts);
+            }
+            catch
+            {
+                shutdownEvent.Dispose();
+                throw;
+            }
+        }
+        catch
+        {
+            workAvailable.Dispose();
+            throw;
+        }
+    }
+#pragma warning restore CA2000, IDISP001
+
+    private Thread CreateWorkerThread(string? configuredName, int maxStackSize)
+    {
+        var threadName = string.IsNullOrWhiteSpace(configuredName)
+            ? SingleThreadedApartmentTaskSchedulerOptions.DefaultThreadName
+            : configuredName;
+        var thread = maxStackSize > 0
+            ? new Thread(ThreadEntry, maxStackSize)
+            : new Thread(ThreadEntry);
+        thread.IsBackground = true;
+        thread.Name = threadName;
+        return thread;
+    }
+
+    private void StartWorkerThread()
+    {
+        try
+        {
+            _platform.Start(_thread);
+        }
+        catch
+        {
+            _shutdownCts.Dispose();
+            _shutdownEvent.Dispose();
+            _workAvailable.Dispose();
+            throw;
         }
     }
 
@@ -386,8 +482,12 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
 
     private T? ExecuteWork<T>(Func<CancellationToken, T?> work, long id, Stopwatch admitted, CancellationToken token)
     {
-        TraceWork(id, "running", admitted.Elapsed.TotalMilliseconds);
-        var execution = Stopwatch.StartNew();
+        if (_diagnostics)
+        {
+            TraceWork(id, "running", admitted.Elapsed.TotalMilliseconds);
+        }
+
+        var execution = _diagnostics ? Stopwatch.StartNew() : null;
         try
         {
 #pragma warning disable CC0031 // Validated at the public scheduling boundary.
@@ -396,7 +496,20 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
         }
         finally
         {
-            TraceWork(id, "execution-ended", execution.Elapsed.TotalMilliseconds);
+            if (_resetFloatingPointMaskAfterWorkItem)
+            {
+                _platform.ResetFloatingPointState();
+            }
+
+            if (_resetThreadCultureAndLocaleAfterWorkItem)
+            {
+                RestoreWorkerCultureAndLocale();
+            }
+
+            if (execution is not null)
+            {
+                TraceWork(id, "execution-ended", execution.Elapsed.TotalMilliseconds);
+            }
         }
     }
 
@@ -475,14 +588,46 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
         }
     }
 
+#pragma warning disable CA2000, IDISP001 // Scope ownership transfers to TeardownOnStaThread in finally.
     private void ThreadEntry()
     {
-        var initialized = false;
+        var oleInitialized = false;
+        var comInitialized = false;
+        var staVerified = false;
+        IDisposable? threadScope = null;
         Exception? failure = null;
         try
         {
             _platform.Initialize();
-            initialized = true;
+            oleInitialized = true;
+            if (_verifyNativeStaApartment)
+            {
+                _platform.EnsureNativeStaApartment(ref comInitialized);
+            }
+
+            staVerified = true;
+            if (_resetFloatingPointMaskAfterWorkItem)
+            {
+                // Invoke the exact reset path once before any user callback so virtual dispatch,
+                // managed wrapper, and ucrtbase P/Invoke stubs are JIT-compiled and bound while masked.
+                _platform.ResetFloatingPointState();
+            }
+
+            InitializeWorkerCultureAndLocale();
+            if (!_isShuttingDown && _createThreadScope is not null)
+            {
+                threadScope = _createThreadScope();
+                if (_resetFloatingPointMaskAfterWorkItem)
+                {
+                    _platform.ResetFloatingPointState();
+                }
+
+                if (_resetThreadCultureAndLocaleAfterWorkItem)
+                {
+                    RestoreWorkerCultureAndLocale();
+                }
+            }
+
             _threadReady.TrySetResult(true);
             MessageLoopThread();
         }
@@ -492,21 +637,95 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
         }
         finally
         {
-            if (initialized)
-            {
-                try
-                {
-                    _platform.Uninitialize();
-                }
-                catch (Exception ex)
-                {
-                    failure ??= ex;
-                }
-            }
-
+            DrainQueue(failure);
+            failure = TeardownOnStaThread(threadScope, staVerified, comInitialized, oleInitialized, failure);
             FinishWorker(failure);
         }
     }
+#pragma warning restore CA2000, IDISP001
+
+    private void InitializeWorkerCultureAndLocale()
+    {
+        if (_threadCulture is not null && !ReferenceEquals(CultureInfo.CurrentCulture, _threadCulture))
+        {
+            CultureInfo.CurrentCulture = _threadCulture;
+        }
+
+        if (_threadUICulture is not null && !ReferenceEquals(CultureInfo.CurrentUICulture, _threadUICulture))
+        {
+            CultureInfo.CurrentUICulture = _threadUICulture;
+        }
+
+        if (_windowsThreadLocaleId.HasValue)
+        {
+            _platform.SetThreadLocale(_windowsThreadLocaleId.Value);
+        }
+
+        if (_resetThreadCultureAndLocaleAfterWorkItem)
+        {
+            _baselineCulture = _threadCulture ?? CultureInfo.ReadOnly(CultureInfo.CurrentCulture);
+            _baselineUICulture = _threadUICulture ?? CultureInfo.ReadOnly(CultureInfo.CurrentUICulture);
+            _baselineWindowsLocaleId = _windowsThreadLocaleId ?? _platform.GetThreadLocale();
+        }
+    }
+
+    private void RestoreWorkerCultureAndLocale()
+    {
+        if (_baselineCulture is not null && !ReferenceEquals(CultureInfo.CurrentCulture, _baselineCulture))
+        {
+            CultureInfo.CurrentCulture = _baselineCulture;
+        }
+
+        if (_baselineUICulture is not null && !ReferenceEquals(CultureInfo.CurrentUICulture, _baselineUICulture))
+        {
+            CultureInfo.CurrentUICulture = _baselineUICulture;
+        }
+
+        if (_baselineWindowsLocaleId != 0 && _platform.GetThreadLocale() != _baselineWindowsLocaleId)
+        {
+            _platform.SetThreadLocale(_baselineWindowsLocaleId);
+        }
+    }
+
+#pragma warning disable IDISP007 // Ownership of the per-thread scope belongs to ThreadEntry/TeardownOnStaThread.
+    private Exception? TeardownOnStaThread(
+        IDisposable? threadScope,
+        bool staVerified,
+        bool comInitialized,
+        bool oleInitialized,
+        Exception? failure)
+    {
+        if (threadScope is not null)
+        {
+            failure = StaPlatform.InvokeCleanupStep(threadScope.Dispose, failure);
+        }
+
+        if (staVerified && _freeUnusedComLibrariesOnShutdown)
+        {
+            failure = StaPlatform.InvokeCleanupStep(_platform.FreeUnusedLibraries, failure);
+        }
+
+        if (staVerified && (_freeUnusedComLibrariesOnShutdown || _postWorkItemPumpBatchSize > 0))
+        {
+            var batchSize = _postWorkItemPumpBatchSize > 0
+                ? _postWorkItemPumpBatchSize
+                : NativeMethods.DefaultMessageBatchSize;
+            failure = StaPlatform.InvokeCleanupStep(() => _platform.Pump(preserveQuit: true, batchSize), failure);
+        }
+
+        if (comInitialized)
+        {
+            failure = StaPlatform.InvokeCleanupStep(_platform.UninitializeCom, failure);
+        }
+
+        if (oleInitialized)
+        {
+            failure = StaPlatform.InvokeCleanupStep(_platform.Uninitialize, failure);
+        }
+
+        return failure;
+    }
+#pragma warning restore IDISP007
 
     private void FinishWorker(Exception? failure)
     {
@@ -582,6 +801,11 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
             if (item is not null)
             {
                 item.Execute();
+                if (_postWorkItemPumpBatchSize > 0)
+                {
+                    _platform.Pump(preserveQuit: true, _postWorkItemPumpBatchSize);
+                }
+
                 continue;
             }
 

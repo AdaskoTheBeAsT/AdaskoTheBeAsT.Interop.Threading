@@ -28,8 +28,10 @@ function Invoke-Checked([string] $Executable, [string[]] $Arguments, [int] $Dead
 if ($Mode -ne 'Portable' -and -not $IsWindows) { throw "$Mode validation requires Windows and PowerShell 7." }
 Invoke-Checked dotnet @('restore', $solution)
 if ($Mode -eq 'Portable') {
-    Invoke-Checked dotnet @('test', '--project', $tests, '-c', $Configuration, '-f', 'net10.0', '--no-restore',
-        '--filter', 'FullyQualifiedName~TaskExtension', '--report-xunit-trx')
+    foreach ($tfm in @('net11.0', 'net10.0')) {
+        Invoke-Checked dotnet @('test', '--project', $tests, '-c', $Configuration, '-f', $tfm, '--no-restore',
+            '--filter', 'FullyQualifiedName~TaskExtension|FullyQualifiedName~ThreadAffinity|FullyQualifiedName~ThreadCultureScopePortable', '--report-xunit-trx')
+    }
     return
 }
 
@@ -39,13 +41,30 @@ try {
         $env:ASTRA_TEST_ARCHITECTURE = 'x86'
         Invoke-Checked dotnet @('test', '--project', $tests, '-c', $Configuration, '-f', 'net472', '--no-restore',
             '--arch', 'x86', '--report-xunit-trx')
+        $x86Dotnet = Join-Path ${env:ProgramFiles(x86)} 'dotnet\dotnet.exe'
+        if (Test-Path $x86Dotnet) {
+            $x86Runtimes = & $x86Dotnet --list-runtimes 2>$null
+            foreach ($entry in @(
+                @{ Tfm = 'net11.0'; Prefix = 'Microsoft.NETCore.App 11.' },
+                @{ Tfm = 'net10.0'; Prefix = 'Microsoft.NETCore.App 10.' }
+            )) {
+                if ($x86Runtimes | Where-Object { $_.StartsWith($entry.Prefix, [System.StringComparison]::Ordinal) }) {
+                    Invoke-Checked dotnet @('test', '--project', $tests, '-c', $Configuration, '-f', $entry.Tfm, '--no-restore',
+                        '--arch', 'x86', '--report-xunit-trx')
+                }
+            }
+        }
+        $fpuScript = Join-Path $repo 'scripts/Test-FpuProcess.ps1'
+        if (Test-Path $fpuScript) {
+            Invoke-Checked pwsh @('-NoProfile', '-File', $fpuScript, '-Configuration', $Configuration) 90
+        }
         return
     }
 
     $env:ASTRA_TEST_ARCHITECTURE = 'x64'
     # GeneratePackageOnBuild is enabled. Build first; pack alone can reuse stale assemblies.
     Invoke-Checked dotnet @('build', $solution, '-c', $Configuration, '--no-restore', '-p:ContinuousIntegrationBuild=true')
-    foreach ($tfm in @('net10.0', 'net9.0', 'net8.0', 'net481', 'net48', 'net472')) {
+    foreach ($tfm in @('net11.0', 'net10.0', 'net481', 'net48', 'net472')) {
         Invoke-Checked dotnet @('test', '--project', $tests, '-c', $Configuration, '-f', $tfm, '--no-build',
             '--report-xunit-trx') 90
     }

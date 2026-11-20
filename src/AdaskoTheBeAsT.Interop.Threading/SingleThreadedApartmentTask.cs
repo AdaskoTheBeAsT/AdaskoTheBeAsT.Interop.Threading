@@ -1,4 +1,6 @@
 using System;
+using System.Globalization;
+using System.Runtime.ExceptionServices;
 #if NET8_0_OR_GREATER
 using System.Runtime.Versioning;
 #endif
@@ -8,8 +10,9 @@ using System.Threading.Tasks;
 namespace AdaskoTheBeAsT.Interop.Threading;
 
 /// <summary>
-/// Runs delegates on a dedicated background STA thread.
-/// Each call owns one OLE-initialized thread. Task completion includes a bounded final pump and OLE cleanup.
+/// Runs synchronous delegates in a Windows single-threaded apartment (STA) synchronously or asynchronously.
+/// Dedicated-thread calls own one OLE-initialized background STA thread, verify native STA membership,
+/// perform a bounded final message pump, and uninitialize COM/OLE before completing.
 /// </summary>
 /// <remarks>Delegates must be synchronous. Neither async lambdas nor Unwrap preserve STA affinity across awaits.</remarks>
 #if NET8_0_OR_GREATER
@@ -17,6 +20,172 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 #endif
 public static class SingleThreadedApartmentTask
 {
+    /// <summary>
+    /// Synchronously executes an action on a dedicated background STA thread.
+    /// </summary>
+    /// <param name="action">The synchronous action to execute on the STA thread.</param>
+    /// <param name="cancellationToken">A token checked before starting and around execution; any started STA thread is always joined before returning.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="action"/> is <see langword="null"/>.</exception>
+    public static void Run(Action action, CancellationToken cancellationToken = default)
+    {
+        ValidateDelegate(action, nameof(action));
+        _ = Run(WrapAction(action), options: null, new StaPlatform(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Synchronously executes an action on a dedicated background STA thread and provides a <see cref="StaYield"/> helper.
+    /// </summary>
+    /// <param name="action">The synchronous action to execute on the STA thread.</param>
+    /// <param name="cancellationToken">A token checked before starting and around execution; any started STA thread is always joined before returning.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="action"/> is <see langword="null"/>.</exception>
+    public static void Run(Action<StaYield> action, CancellationToken cancellationToken = default)
+    {
+        ValidateDelegate(action, nameof(action));
+        _ = Run(WrapYieldAction(action), options: null, new StaPlatform(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Synchronously executes a function on a dedicated background STA thread and returns its result.
+    /// </summary>
+    /// <typeparam name="T">The type returned by <paramref name="func"/>.</typeparam>
+    /// <param name="func">The synchronous function to execute on the STA thread.</param>
+    /// <param name="cancellationToken">A token checked before starting and around execution; any started STA thread is always joined before returning.</param>
+    /// <returns>The value returned by <paramref name="func"/>.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="func"/> is <see langword="null"/>.</exception>
+    public static T Run<T>(Func<T> func, CancellationToken cancellationToken = default)
+    {
+        ValidateDelegate(func, nameof(func));
+        return Run(func, options: null, new StaPlatform(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Synchronously executes a function on a dedicated background STA thread and provides a <see cref="StaYield"/> helper.
+    /// </summary>
+    /// <typeparam name="T">The type returned by <paramref name="func"/>.</typeparam>
+    /// <param name="func">The synchronous function to execute on the STA thread.</param>
+    /// <param name="cancellationToken">A token checked before starting and around execution; any started STA thread is always joined before returning.</param>
+    /// <returns>The value returned by <paramref name="func"/>.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="func"/> is <see langword="null"/>.</exception>
+    public static T Run<T>(Func<StaYield, T> func, CancellationToken cancellationToken = default)
+    {
+        ValidateDelegate(func, nameof(func));
+        return Run(WrapYieldFunc(func), options: null, new StaPlatform(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Synchronously executes an action in an STA apartment using the specified <see cref="StaExecutionMode"/>.
+    /// </summary>
+    /// <param name="action">The synchronous action to execute.</param>
+    /// <param name="mode">Whether to always spawn a dedicated STA thread or reuse the calling thread when already STA.</param>
+    /// <param name="cancellationToken">A token checked before starting and around execution.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="action"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="mode"/> is not a defined <see cref="StaExecutionMode"/>.</exception>
+    public static void Run(Action action, StaExecutionMode mode, CancellationToken cancellationToken = default)
+    {
+        ValidateDelegate(action, nameof(action));
+        ValidateExecutionMode(mode, nameof(mode));
+        _ = Run(WrapAction(action), new SingleThreadedApartmentTaskOptions { ExecutionMode = mode }, new StaPlatform(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Synchronously executes a function in an STA apartment using the specified <see cref="StaExecutionMode"/>.
+    /// </summary>
+    /// <typeparam name="T">The type returned by <paramref name="func"/>.</typeparam>
+    /// <param name="func">The synchronous function to execute.</param>
+    /// <param name="mode">Whether to always spawn a dedicated STA thread or reuse the calling thread when already STA.</param>
+    /// <param name="cancellationToken">A token checked before starting and around execution.</param>
+    /// <returns>The value returned by <paramref name="func"/>.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="func"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="mode"/> is not a defined <see cref="StaExecutionMode"/>.</exception>
+    public static T Run<T>(Func<T> func, StaExecutionMode mode, CancellationToken cancellationToken = default)
+    {
+        ValidateDelegate(func, nameof(func));
+        ValidateExecutionMode(mode, nameof(mode));
+        return Run(func, new SingleThreadedApartmentTaskOptions { ExecutionMode = mode }, new StaPlatform(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Synchronously executes an action in an STA apartment using the specified <see cref="SingleThreadedApartmentTaskOptions"/>.
+    /// </summary>
+    /// <param name="action">The synchronous action to execute.</param>
+    /// <param name="options">Optional execution, stack, apartment, culture/LCID, and FPU hygiene settings.</param>
+    /// <param name="cancellationToken">A token checked before starting and around execution.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="action"/> is <see langword="null"/>.</exception>
+    public static void Run(Action action, SingleThreadedApartmentTaskOptions? options, CancellationToken cancellationToken = default)
+    {
+        ValidateDelegate(action, nameof(action));
+        _ = Run(WrapAction(action), options, new StaPlatform(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Synchronously executes an action in an STA apartment with a <see cref="StaYield"/> helper using the specified options.
+    /// </summary>
+    /// <param name="action">The synchronous action to execute.</param>
+    /// <param name="options">Optional execution, stack, apartment, culture/LCID, and FPU hygiene settings.</param>
+    /// <param name="cancellationToken">A token checked before starting and around execution.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="action"/> is <see langword="null"/>.</exception>
+    public static void Run(Action<StaYield> action, SingleThreadedApartmentTaskOptions? options, CancellationToken cancellationToken = default)
+    {
+        ValidateDelegate(action, nameof(action));
+        _ = Run(WrapYieldAction(action), options, new StaPlatform(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Synchronously executes a function in an STA apartment using the specified <see cref="SingleThreadedApartmentTaskOptions"/>.
+    /// </summary>
+    /// <typeparam name="T">The type returned by <paramref name="func"/>.</typeparam>
+    /// <param name="func">The synchronous function to execute.</param>
+    /// <param name="options">Optional execution, stack, apartment, culture/LCID, and FPU hygiene settings.</param>
+    /// <param name="cancellationToken">A token checked before starting and around execution.</param>
+    /// <returns>The value returned by <paramref name="func"/>.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="func"/> is <see langword="null"/>.</exception>
+    public static T Run<T>(Func<T> func, SingleThreadedApartmentTaskOptions? options, CancellationToken cancellationToken = default)
+    {
+        ValidateDelegate(func, nameof(func));
+        return Run(func, options, new StaPlatform(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Synchronously executes a function in an STA apartment with a <see cref="StaYield"/> helper using the specified options.
+    /// </summary>
+    /// <typeparam name="T">The type returned by <paramref name="func"/>.</typeparam>
+    /// <param name="func">The synchronous function to execute.</param>
+    /// <param name="options">Optional execution, stack, apartment, culture/LCID, and FPU hygiene settings.</param>
+    /// <param name="cancellationToken">A token checked before starting and around execution.</param>
+    /// <returns>The value returned by <paramref name="func"/>.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="func"/> is <see langword="null"/>.</exception>
+    public static T Run<T>(Func<StaYield, T> func, SingleThreadedApartmentTaskOptions? options, CancellationToken cancellationToken = default)
+    {
+        ValidateDelegate(func, nameof(func));
+        return Run(WrapYieldFunc(func), options, new StaPlatform(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs an action on a dedicated background STA thread.
+    /// </summary>
+    /// <param name="action">The synchronous action to execute on the STA thread.</param>
+    /// <param name="cancellationToken">A token that can cancel the operation before or during execution.</param>
+    /// <returns>A task that completes when the action and STA teardown finish, faults with the original exception, or is canceled.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="action"/> is <see langword="null"/>.</exception>
+    public static Task RunAsync(Action action, CancellationToken cancellationToken = default)
+    {
+        ValidateDelegate(action, nameof(action));
+        return RunAsync(WrapAction(action), options: null, new StaPlatform(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs an action on a dedicated background STA thread and provides a <see cref="StaYield"/> helper for cooperative message pumping.
+    /// </summary>
+    /// <param name="action">The synchronous action to execute on the STA thread.</param>
+    /// <param name="cancellationToken">A token that can cancel the operation before or during execution.</param>
+    /// <returns>A task that completes when the action and STA teardown finish, faults with the original exception, or is canceled.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="action"/> is <see langword="null"/>.</exception>
+    public static Task RunAsync(Action<StaYield> action, CancellationToken cancellationToken = default)
+    {
+        ValidateDelegate(action, nameof(action));
+        return RunAsync(WrapYieldAction(action), options: null, new StaPlatform(), cancellationToken);
+    }
+
     /// <summary>
     /// Runs a delegate on a dedicated STA thread and provides a <see cref="StaYield"/> helper for cooperative message pumping.
     /// </summary>
@@ -27,18 +196,10 @@ public static class SingleThreadedApartmentTask
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="func"/> is <see langword="null"/>.</exception>
     public static Task<T> RunAsync<T>(
         Func<StaYield, T> func,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
-#if NET6_0_OR_GREATER
-        ArgumentNullException.ThrowIfNull(func);
-#else
-        if (func == null)
-        {
-            throw new ArgumentNullException(nameof(func));
-        }
-#endif
-
-        return RunAsync(() => func(new StaYield()), cancellationToken);
+        ValidateDelegate(func, nameof(func));
+        return RunAsync(WrapYieldFunc(func), options: null, new StaPlatform(), cancellationToken);
     }
 
     // ReSharper disable once InconsistentNaming
@@ -54,18 +215,100 @@ public static class SingleThreadedApartmentTask
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="func"/> is <see langword="null"/>.</exception>
     public static Task<T> RunAsync<T>(
         Func<T> func,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
-#if NET6_0_OR_GREATER
-        ArgumentNullException.ThrowIfNull(func);
-#else
-        if (func == null)
-        {
-            throw new ArgumentNullException(nameof(func));
-        }
-#endif
+        ValidateDelegate(func, nameof(func));
+        return RunAsync(func, options: null, new StaPlatform(), cancellationToken);
+    }
 
-        return RunAsync(func, new StaPlatform(), cancellationToken);
+    /// <summary>
+    /// Runs an action on a dedicated background STA thread using the specified <see cref="SingleThreadedApartmentTaskOptions"/>.
+    /// </summary>
+    /// <param name="action">The synchronous action to execute on the STA thread.</param>
+    /// <param name="options">Optional stack, apartment, culture/LCID, and FPU hygiene settings.</param>
+    /// <param name="cancellationToken">A token that can cancel the operation before or during execution.</param>
+    /// <returns>A task that completes when the action and STA teardown finish, faults with the original exception, or is canceled.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="action"/> is <see langword="null"/>.</exception>
+    public static Task RunAsync(
+        Action action,
+        SingleThreadedApartmentTaskOptions? options,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateDelegate(action, nameof(action));
+        return RunAsync(WrapAction(action), options, new StaPlatform(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs an action on a dedicated background STA thread with a <see cref="StaYield"/> helper using the specified options.
+    /// </summary>
+    /// <param name="action">The synchronous action to execute on the STA thread.</param>
+    /// <param name="options">Optional stack, apartment, culture/LCID, and FPU hygiene settings.</param>
+    /// <param name="cancellationToken">A token that can cancel the operation before or during execution.</param>
+    /// <returns>A task that completes when the action and STA teardown finish, faults with the original exception, or is canceled.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="action"/> is <see langword="null"/>.</exception>
+    public static Task RunAsync(
+        Action<StaYield> action,
+        SingleThreadedApartmentTaskOptions? options,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateDelegate(action, nameof(action));
+        return RunAsync(WrapYieldAction(action), options, new StaPlatform(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs a delegate on a dedicated background STA thread using the specified <see cref="SingleThreadedApartmentTaskOptions"/>.
+    /// </summary>
+    /// <typeparam name="T">The type returned by <paramref name="func"/>.</typeparam>
+    /// <param name="func">The synchronous delegate to execute on the STA thread.</param>
+    /// <param name="options">Optional stack, apartment, culture/LCID, and FPU hygiene settings.</param>
+    /// <param name="cancellationToken">A token that can cancel the operation before or during execution.</param>
+    /// <returns>A task that completes with the delegate result, faults with the original exception, or is canceled.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="func"/> is <see langword="null"/>.</exception>
+    public static Task<T> RunAsync<T>(
+        Func<T> func,
+        SingleThreadedApartmentTaskOptions? options,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateDelegate(func, nameof(func));
+        return RunAsync(func, options, new StaPlatform(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs a delegate on a dedicated background STA thread with a <see cref="StaYield"/> helper using the specified options.
+    /// </summary>
+    /// <typeparam name="T">The type returned by <paramref name="func"/>.</typeparam>
+    /// <param name="func">The synchronous delegate to execute on the STA thread.</param>
+    /// <param name="options">Optional stack, apartment, culture/LCID, and FPU hygiene settings.</param>
+    /// <param name="cancellationToken">A token that can cancel the operation before or during execution.</param>
+    /// <returns>A task that completes with the delegate result, faults with the original exception, or is canceled.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="func"/> is <see langword="null"/>.</exception>
+    public static Task<T> RunAsync<T>(
+        Func<StaYield, T> func,
+        SingleThreadedApartmentTaskOptions? options,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateDelegate(func, nameof(func));
+        return RunAsync(WrapYieldFunc(func), options, new StaPlatform(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs an action on a dedicated STA thread and applies a timeout to the resulting wait.
+    /// </summary>
+    /// <param name="timeSpan">The maximum amount of time to wait for the action to complete.</param>
+    /// <param name="action">The synchronous action to execute on the STA thread.</param>
+    /// <param name="cancellationToken">A token that can cancel the wait before the timeout expires.</param>
+    /// <returns>A task that completes when the action finishes, faults with the original exception, times out, or is canceled.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="action"/> is <see langword="null"/>.</exception>
+    public static Task RunWithTimeoutAsync(
+        TimeSpan timeSpan,
+        Action action,
+        CancellationToken cancellationToken = default)
+    {
+        TimeoutValidation.Validate(timeSpan, nameof(timeSpan));
+        ValidateDelegate(action, nameof(action));
+        var source = RunAsync(action, cancellationToken);
+        TaskWait.ObserveFault(source);
+        return source.TimeoutAfterAsync(timeSpan, cancellationToken);
     }
 
     /// <summary>
@@ -79,7 +322,7 @@ public static class SingleThreadedApartmentTask
     public static Task<T> RunWithTimeoutAsync<T>(
         TimeSpan timeSpan,
         Func<T> func,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
         TimeoutValidation.Validate(timeSpan, nameof(timeSpan));
         var source = RunAsync(func, cancellationToken);
@@ -87,52 +330,172 @@ public static class SingleThreadedApartmentTask
         return source.TimeoutAfterAsync(timeSpan, cancellationToken);
     }
 
+    internal static T Run<T>(
+        Func<T> func,
+        SingleThreadedApartmentTaskOptions? options,
+        StaPlatform platform,
+        CancellationToken cancellationToken)
+    {
+        var captured = CapturedTaskOptions.CaptureAndValidate(options, nameof(options));
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (captured.ExecutionMode == StaExecutionMode.ReuseCurrentStaThread
+            && StaApartment.IsCurrentThreadSta(platform, verifyNativeApartment: false))
+        {
+            return RunInlineOnCurrentStaThread(func, captured, platform, cancellationToken);
+        }
+
+        return RunOnDedicatedThreadSync(func, captured, platform, cancellationToken);
+    }
+
     internal static Task<T> RunAsync<T>(Func<T> func, StaPlatform platform, CancellationToken cancellationToken)
     {
+        return RunAsync(func, options: null, platform, cancellationToken);
+    }
+
+    internal static Task<T> RunAsync<T>(
+        Func<T> func,
+        SingleThreadedApartmentTaskOptions? options,
+        StaPlatform platform,
+        CancellationToken cancellationToken)
+    {
+        var captured = CapturedTaskOptions.CaptureAndValidate(options, nameof(options));
         if (cancellationToken.IsCancellationRequested)
         {
             return Task.FromCanceled<T>(cancellationToken);
         }
 
+        captured.BeforeThreadStart?.Invoke();
         var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var thread = new Thread(() => Execute(func, platform, tcs, cancellationToken))
-        {
-            IsBackground = true,
-            Name = "STA Task Thread",
-        };
+        var thread = CreateDedicatedThread(() => ExecuteAsyncWorker(func, captured, platform, tcs, cancellationToken), captured);
         platform.Start(thread);
         return tcs.Task;
     }
 
-    private static void Execute<T>(
-        Func<T> func, StaPlatform platform, TaskCompletionSource<T> completion, CancellationToken token)
+#pragma warning disable CC0031 // Validated by the public entry point before wrapping.
+    private static Func<bool> WrapAction(Action action)
     {
-        var initialized = false;
-        var result = default(T)!;
-        Exception? failure = null;
+        return () =>
+        {
+            action();
+            return true;
+        };
+    }
+
+    private static Func<bool> WrapYieldAction(Action<StaYield> action)
+    {
+        return () =>
+        {
+            action(new StaYield());
+            return true;
+        };
+    }
+
+    private static Func<T> WrapYieldFunc<T>(Func<StaYield, T> func)
+    {
+        return () => func(new StaYield());
+    }
+#pragma warning restore CC0031
+
+    private static void ValidateDelegate(Delegate work, string parameterName)
+    {
+#if NET8_0_OR_GREATER
+#pragma warning disable S3236 // Preserve the public parameter name through this shared guard.
+        ArgumentNullException.ThrowIfNull(work, parameterName);
+#pragma warning restore S3236
+#else
+        if (work is null)
+        {
+            throw new ArgumentNullException(parameterName);
+        }
+#endif
+    }
+
+    private static void ValidateExecutionMode(StaExecutionMode mode, string parameterName)
+    {
+        if (mode != StaExecutionMode.DedicatedThread && mode != StaExecutionMode.ReuseCurrentStaThread)
+        {
+#pragma warning disable S3236 // Preserve the public parameter name through this shared guard.
+            throw new ArgumentOutOfRangeException(parameterName, mode, $"Unsupported {nameof(StaExecutionMode)} value: {mode}.");
+#pragma warning restore S3236
+        }
+    }
+
+    private static Thread CreateDedicatedThread(ThreadStart start, CapturedTaskOptions captured)
+    {
+        var thread = captured.MaxStackSize > 0
+            ? new Thread(start, captured.MaxStackSize)
+            : new Thread(start);
+        thread.IsBackground = true;
+        thread.Name = captured.ThreadName;
+        return thread;
+    }
+
+    private static T RunInlineOnCurrentStaThread<T>(
+        Func<T> func,
+        CapturedTaskOptions captured,
+        StaPlatform platform,
+        CancellationToken token)
+    {
+        captured.BeforeThreadStart?.Invoke();
+        using var apartmentScope = StaApartment.EnterScope(platform, initializeOle: true, captured.VerifyNativeStaApartment);
+        using var cultureScope = captured.HasCultureOrLocale
+            ? ThreadCultureScope.Enter(captured.ThreadCulture, captured.ThreadUICulture, captured.RawWindowsLocaleId, platform)
+            : null;
+        if (captured.ResetFloatingPointMaskBeforeExit)
+        {
+            platform.ResetFloatingPointState();
+        }
+
         try
         {
             token.ThrowIfCancellationRequested();
-            platform.Initialize();
-            initialized = true;
-            token.ThrowIfCancellationRequested();
 #pragma warning disable CC0031 // Validated by the public entry point.
-            result = func();
+            var result = func();
 #pragma warning restore CC0031
             token.ThrowIfCancellationRequested();
-        }
-        catch (Exception ex)
-        {
-            failure = ex;
+            return result;
         }
         finally
         {
-            if (initialized)
+            if (captured.ResetFloatingPointMaskBeforeExit)
             {
-                failure = Cleanup(platform, failure);
+                platform.ResetFloatingPointState();
             }
         }
+    }
 
+    private static T RunOnDedicatedThreadSync<T>(
+        Func<T> func,
+        CapturedTaskOptions captured,
+        StaPlatform platform,
+        CancellationToken token)
+    {
+        captured.BeforeThreadStart?.Invoke();
+        var result = default(T)!;
+        Exception? failure = null;
+        var thread = CreateDedicatedThread(
+            () => (result, failure) = ExecuteOnDedicatedThread(func, captured, platform, token),
+            captured);
+        platform.Start(thread);
+        thread.Join();
+
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+
+        return result;
+    }
+
+    private static void ExecuteAsyncWorker<T>(
+        Func<T> func,
+        CapturedTaskOptions captured,
+        StaPlatform platform,
+        TaskCompletionSource<T> completion,
+        CancellationToken token)
+    {
+        var (result, failure) = ExecuteOnDedicatedThread(func, captured, platform, token);
         if (failure is OperationCanceledException canceled &&
             (canceled.CancellationToken == token || token.IsCancellationRequested))
         {
@@ -148,28 +511,201 @@ public static class SingleThreadedApartmentTask
         }
     }
 
-    private static Exception? Cleanup(StaPlatform platform, Exception? primary)
+    private static (T Result, Exception? Failure) ExecuteOnDedicatedThread<T>(
+        Func<T> func,
+        CapturedTaskOptions captured,
+        StaPlatform platform,
+        CancellationToken token)
     {
+        var oleInitialized = false;
+        var comInitialized = false;
+        var result = default(T)!;
+        Exception? failure = null;
         try
         {
-            platform.Pump(preserveQuit: false);
+            token.ThrowIfCancellationRequested();
+            platform.Initialize();
+            oleInitialized = true;
+            if (captured.VerifyNativeStaApartment)
+            {
+                platform.EnsureNativeStaApartment(ref comInitialized);
+            }
+
+            if (captured.ResetFloatingPointMaskBeforeExit)
+            {
+                platform.ResetFloatingPointState();
+            }
+
+            ApplyDedicatedThreadCultureAndLocale(captured, platform);
+            token.ThrowIfCancellationRequested();
+#pragma warning disable CC0031 // Validated by the public entry point.
+            result = func();
+#pragma warning restore CC0031
+            token.ThrowIfCancellationRequested();
         }
         catch (Exception ex)
         {
-            primary ??= ex;
+            failure = ex;
         }
         finally
         {
-            try
+            if (captured.ResetFloatingPointMaskBeforeExit)
             {
-                platform.Uninitialize();
+                failure = StaPlatform.InvokeCleanupStep(platform.ResetFloatingPointState, failure);
             }
-            catch (Exception ex)
+
+            if (oleInitialized || comInitialized)
             {
-                primary ??= ex;
+                failure = Cleanup(platform, comInitialized, oleInitialized, failure);
             }
         }
 
+        return (result, failure);
+    }
+
+    private static void ApplyDedicatedThreadCultureAndLocale(CapturedTaskOptions captured, StaPlatform platform)
+    {
+        if (captured.ThreadCulture is not null && !ReferenceEquals(CultureInfo.CurrentCulture, captured.ThreadCulture))
+        {
+            CultureInfo.CurrentCulture = captured.ThreadCulture;
+        }
+
+        if (captured.ThreadUICulture is not null && !ReferenceEquals(CultureInfo.CurrentUICulture, captured.ThreadUICulture))
+        {
+            CultureInfo.CurrentUICulture = captured.ThreadUICulture;
+        }
+
+        if (captured.WindowsThreadLocaleId.HasValue)
+        {
+            platform.SetThreadLocale(captured.WindowsThreadLocaleId.Value);
+        }
+    }
+
+    private static Exception? Cleanup(
+        StaPlatform platform,
+        bool comInitialized,
+        bool oleInitialized,
+        Exception? primary)
+    {
+        if (oleInitialized)
+        {
+            primary = StaPlatform.InvokeCleanupStep(() => platform.Pump(preserveQuit: false), primary);
+        }
+
+        if (comInitialized)
+        {
+            primary = StaPlatform.InvokeCleanupStep(platform.UninitializeCom, primary);
+        }
+
+        if (oleInitialized)
+        {
+            primary = StaPlatform.InvokeCleanupStep(platform.Uninitialize, primary);
+        }
+
         return primary;
+    }
+
+    private readonly struct CapturedTaskOptions
+    {
+        private CapturedTaskOptions(
+            string threadName,
+            int maxStackSize,
+            StaExecutionMode executionMode,
+            Action? beforeThreadStart,
+            bool verifyNativeStaApartment,
+            CultureInfo? threadCulture,
+            CultureInfo? threadUICulture,
+            int? rawWindowsLocaleId,
+            bool resetFloatingPointMaskBeforeExit)
+        {
+            ThreadName = threadName;
+            MaxStackSize = maxStackSize;
+            ExecutionMode = executionMode;
+            BeforeThreadStart = beforeThreadStart;
+            VerifyNativeStaApartment = verifyNativeStaApartment;
+            ThreadCulture = threadCulture;
+            ThreadUICulture = threadUICulture;
+            RawWindowsLocaleId = rawWindowsLocaleId;
+            WindowsThreadLocaleId = rawWindowsLocaleId.HasValue ? (uint)rawWindowsLocaleId.Value : null;
+            ResetFloatingPointMaskBeforeExit = resetFloatingPointMaskBeforeExit;
+        }
+
+        public string ThreadName { get; }
+
+        public int MaxStackSize { get; }
+
+        public StaExecutionMode ExecutionMode { get; }
+
+        public Action? BeforeThreadStart { get; }
+
+        public bool VerifyNativeStaApartment { get; }
+
+        public CultureInfo? ThreadCulture { get; }
+
+        public CultureInfo? ThreadUICulture { get; }
+
+        public int? RawWindowsLocaleId { get; }
+
+        public uint? WindowsThreadLocaleId { get; }
+
+        public bool ResetFloatingPointMaskBeforeExit { get; }
+
+        public bool HasCultureOrLocale =>
+            ThreadCulture is not null || ThreadUICulture is not null || RawWindowsLocaleId.HasValue;
+
+        public static CapturedTaskOptions CaptureAndValidate(
+            SingleThreadedApartmentTaskOptions? options,
+            string parameterName)
+        {
+            if (options is null)
+            {
+                return new CapturedTaskOptions(
+                    SingleThreadedApartmentTaskOptions.DefaultThreadName,
+                    maxStackSize: 0,
+                    StaExecutionMode.DedicatedThread,
+                    beforeThreadStart: null,
+                    verifyNativeStaApartment: true,
+                    threadCulture: null,
+                    threadUICulture: null,
+                    rawWindowsLocaleId: null,
+                    resetFloatingPointMaskBeforeExit: false);
+            }
+
+            var threadName = string.IsNullOrWhiteSpace(options.ThreadName)
+                ? SingleThreadedApartmentTaskOptions.DefaultThreadName
+                : options.ThreadName;
+            var maxStackSize = options.MaxStackSize;
+            var executionMode = options.ExecutionMode;
+            var beforeThreadStart = options.BeforeThreadStart;
+            var verifyNativeStaApartment = options.VerifyNativeStaApartment;
+            var threadCulture = options.ThreadCulture is null ? null : CultureInfo.ReadOnly(options.ThreadCulture);
+            var threadUICulture = options.ThreadUICulture is null ? null : CultureInfo.ReadOnly(options.ThreadUICulture);
+            var rawLocaleId = options.WindowsThreadLocaleId;
+            var resetFloatingPoint = options.ResetFloatingPointMaskBeforeExit;
+
+#pragma warning disable S3236 // Preserve the public options parameter name.
+            if (maxStackSize < 0)
+            {
+                throw new ArgumentOutOfRangeException(parameterName, "MaxStackSize must be non-negative.");
+            }
+
+            ValidateExecutionMode(executionMode, parameterName);
+            if (rawLocaleId is <= 0)
+            {
+                throw new ArgumentOutOfRangeException(parameterName, "WindowsThreadLocaleId must be positive or null.");
+            }
+#pragma warning restore S3236
+
+            return new CapturedTaskOptions(
+                threadName,
+                maxStackSize,
+                executionMode,
+                beforeThreadStart,
+                verifyNativeStaApartment,
+                threadCulture,
+                threadUICulture,
+                rawLocaleId,
+                resetFloatingPoint);
+        }
     }
 }

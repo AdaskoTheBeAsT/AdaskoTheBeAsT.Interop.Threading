@@ -2,17 +2,74 @@
 
 Upgrade instructions for `AdaskoTheBeAsT.Interop.Threading`. Read the [changelog](CHANGELOG.md) for the full release history and the [README](README.md) for current usage examples.
 
-**Current release: 4.0.0.** Review the framework requirements and behavior changes below before upgrading.
+**Current release: 5.0.0.** Review the framework requirements and behavior changes below before upgrading.
 
 ## Choose your upgrade path
 
 | Starting version | Steps |
 | --- | --- |
-| 3.1.x | Follow [3.1 to 4.0](#from-31-to-40). |
-| 3.0.x | Review [3.0 to 3.1](#from-30-to-31), then the 4.0 changes. |
+| 4.x | Follow [4.x to 5.0](#from-4x-to-50). |
+| 3.1.x | Review [3.1 to 4.0](#from-31-to-40), then [4.x to 5.0](#from-4x-to-50). |
+| 3.0.x | Review [3.0 to 3.1](#from-30-to-31), then the 4.0 and 5.0 changes. |
 | 2.x or earlier | Replace static scheduler calls using [2.x to 3.0](#from-2x-to-30), then review the later changes. |
 
 Examples assume a Windows-targeted app and imports for `System`, `System.Threading`, `System.Threading.Tasks`, and `AdaskoTheBeAsT.Interop.Threading`, unless noted otherwise. Placeholder application methods stand for your own synchronous work.
+
+## From 4.x to 5.0
+
+### 1. Check your target framework
+
+| Target | Action |
+| --- | --- |
+| `net11.0`, `net10.0` (including `-windows` consumers) | Supported directly in 5.0. Keep platform guards or Windows annotations for native calls. |
+| `net472`, `net48`, `net481` | No target change required. |
+| `net9.0`, `net8.0` | Removed in 5.0. Retarget to `net10.0` or `net11.0` before upgrading, or remain on `4.0.1`. |
+| `net462`, `net47`, `net471`, `netstandard2.0` | Not supported. Retarget to at least `net472` or `net10.0`. |
+
+For example:
+
+```xml
+<!-- Before -->
+<TargetFramework>net8.0-windows</TargetFramework>
+
+<!-- After -->
+<TargetFramework>net11.0-windows</TargetFramework>
+```
+
+Building this repository from source requires the `.NET 11` SDK (`11.0.100`) selected by `global.json`.
+
+### 2. Review native COM STA apartment verification and Nano Server startup
+
+Both `SingleThreadedApartmentTaskScheduler` and `SingleThreadedApartmentTask` (`Run` and `RunAsync`) now verify the worker thread's native COM apartment (`VerifyNativeStaApartment = true` by default) after `OleInitialize`:
+
+- If `combase!CoGetApartmentType` reports `CO_E_NOTINITIALIZED`, the scheduler calls `CoInitializeEx(IntPtr.Zero, COINIT_APARTMENTTHREADED)` and balances `CoUninitialize()` during teardown.
+- If the worker thread is in native MTA instead of STA (`APTTYPE_MTA` or non-STA neutral apartment), scheduler construction now throws `InvalidOperationException` immediately instead of allowing STA-affinitized COM objects to run on an MTA thread.
+- On Windows Nano Server without an OS-wide STA shim, configure `BeforeThreadStart` so in-process STA shim hooks run on the constructing thread **before** `Thread.Start()` triggers CoreCLR's thread-startup COM initialization:
+
+```csharp
+using var scheduler = new SingleThreadedApartmentTaskScheduler(
+    new SingleThreadedApartmentTaskSchedulerOptions
+    {
+        ThreadName = "Nano-STA",
+        BeforeThreadStart = NanoServerOptions.RefreshStaState,
+    });
+```
+
+Set `VerifyNativeStaApartment = false` only in specialized custom test hosts or non-COM message-loop scenarios where native COM apartment verification is intentionally undesired.
+
+### 3. Adopt optional STA thread scopes and legacy COM hygiene
+
+`ISingleThreadedApartmentTaskScheduler` and `ICooperativeStaTaskScheduler` have **no breaking signature changes** in 5.0. Existing call sites continue to compile unchanged, and all new message-drain, library-unload, and FPU-hygiene behaviors are opt-in:
+
+- **`CreateThreadScope` (`Func<IDisposable?>?`, default `null`):** Runs once on the owned STA thread before `_threadReady` completes, and disposes the returned `IDisposable` once on that exact STA thread during shutdown (after pending queued work items are canceled and before `CoFreeUnusedLibrariesEx` / `CoUninitialize` / `OleUninitialize`). Prefer `CreateThreadScope` over re-entering side-by-side manifests on every `RunAsync` call. If `scope.Dispose()` throws during shutdown, remaining native teardown still executes and `Completion` / `ShutdownAsync` faults with that disposal exception without converting already-canceled pending items into faulted tasks.
+- **`PostWorkItemMessagePumpBatchSize` (`int`, default `0`) and `FreeUnusedComLibrariesOnShutdown` (`bool`, default `false`):** Opt-in bounded `PeekMessageW` drain (`preserveQuit: true`) after each work item and during shutdown, plus `CoFreeUnusedLibrariesEx(0, 0)` after `CreateThreadScope` disposal. Negative batch sizes throw `ArgumentOutOfRangeException` at construction.
+- **`ResetFloatingPointMaskAfterWorkItem` (`bool`, default `false`):** On 32-bit Windows `x86` (`Architecture.X86`), clears sticky x87/SSE exception flags (`ucrtbase!_clearfp`) and restores standard exception masks (`_MCW_EM` via `ucrtbase!__control87_2`) after `CreateThreadScope` and after each work item without altering callers' rounding (`_MCW_RC`) or precision (`_MCW_PC`) modes. Enable this when hosting 32-bit Delphi, VB6, C++, or Fortran COM servers that unmask hardware floating-point traps (especially on CoreCLR `win-x86`, where unmasked FP traps otherwise terminate the process via `FailFast`).
+- **Culture, Win32 LCID (`SetThreadLocale`), and `MaxStackSize`:** Configure `ThreadCulture`, `ThreadUICulture`, `WindowsThreadLocaleId` (positive LCID such as `0x0409` or `0x0809`), `ResetThreadCultureAndLocaleAfterWorkItem`, and `MaxStackSize` on `SingleThreadedApartmentTaskSchedulerOptions` (or `SingleThreadedApartmentTaskOptions` for one-off runs). Standalone callers can also use `ThreadAffinity`, `StaApartment.EnterScope(initializeOle)`, and `ThreadCultureScope.Enter(...)`.
+- **Synchronous STA execution, `Action` overloads, and `ValueTask` / cooperative timeouts:** Replace ad-hoc `new Thread` + `SetApartmentState(STA)` + `Join()` helpers (including inside `MutexHelper.RunInMutex`) with `SingleThreadedApartmentTask.Run(...)`, use `Action` overloads on `MutexHelper`, `SingleThreadedApartmentTask`, and `SingleThreadedApartmentTaskSchedulerExtensions`, and adopt cooperative `TaskExtension.TimeoutAfterAsync(Func<CancellationToken, Task>, ...)` or (`net10.0`/`net11.0`) `ValueTask` overloads where appropriate.
+
+### 4. Timeout and cancellation still bound waiting, not native execution
+
+Passing a timeout or `CancellationToken` to `RunAsync`, `RunCooperativeAsync`, `RunWithTimeoutAsync`, or `TimeoutAfterAsync` stops the caller's wait (or triggers cooperative token checks between native calls). It does **not** interrupt a blocked synchronous native/COM call or force-close its STA session. See the [COM and Execution integration guide](docs/using-with-adaskothebeast-interop-com.md) for single-STA versus `ExecutionWorkerPool<TSession>` selection guidance, and [ADR 0004](docs/adr/0004-net11-target-baseline-and-major-version-5.md) through [ADR 0010](docs/adr/0010-valuetask-and-cooperative-deadline-timeouts.md) for architectural background.
 
 ## From 3.1 to 4.0
 

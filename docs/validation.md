@@ -1,21 +1,30 @@
 # Reproducible validation
 
-## Current 4.0 configuration
+## Current 5.0 configuration
 
-The working tree now defaults to `Version=4.0.1` and targets **six frameworks**:
-`net10.0`, `net9.0`, `net8.0`, `net481`, `net48`, and `net472`.
-`global.json` selects SDK **10.0.401** and the Microsoft.Testing.Platform runner.
-See the [migration guide](../MIGRATION.md) for the removed targets and behavior
-changes.
+The working tree defaults to `Version=5.0.0` and targets **five frameworks**:
+`net11.0`, `net10.0`, `net481`, `net48`, and `net472`.
+`global.json` selects SDK **11.0.100** and the Microsoft.Testing.Platform runner.
+See the [migration guide](../MIGRATION.md) for the removed targets (`net9.0`,
+`net8.0`) and 5.0 behavior changes.
 
-The harness now uses the six supported targets on x64 and `net472` on x86,
-with Microsoft.Testing.Platform arguments and xUnit TRX reports.
-**The historical evidence below does not validate a 4.0 release.** In particular:
+The validation harness (`scripts/Invoke-Validation.ps1`) exercises:
 
-- The current build files do not enable the earlier SDK package/API validation
-  against 3.1.0. Do not infer API compatibility from those historical results.
-- Package lockfiles are no longer used; `dotnet restore` resolves the current
-  framework and dependency inputs directly.
+- **Windows mode (`-Mode Windows`):** Solution restore and Release build with
+  warnings-as-errors and `ContinuousIntegrationBuild=true` (producing `.nupkg` and
+  `.snupkg`), all five x64 targets (`net11.0`, `net10.0`, `net481`, `net48`,
+  `net472`), `StaService` and `MutexProbe` sample builds on `net11.0-windows`,
+  `StaService` execution, and the two-process `scripts/Test-MutexProcesses.ps1`
+  harness.
+- **X86 mode (`-Mode X86`):** Full x86 unit suite on `net472` (`--arch x86`),
+  conditional x86 runs on `net11.0` and `net10.0` when 32-bit `dotnet.exe`
+  runtimes are installed, and `scripts/Test-FpuProcess.ps1` compiling
+  `test/native/fpu_poison.c` with 32-bit MSVC `cl.exe` and executing negative and
+  positive hardware FPU trap-poisoning probes in fresh 32-bit `SysWOW64`
+  processes.
+- **Portable mode (`-Mode Portable`):** Portable `TaskExtension` (`Task`,
+  `ValueTask`, and cooperative linked-deadline timeouts), `ThreadAffinity`, and
+  portable `ThreadCultureScope` suites on `net11.0` and `net10.0`.
 
 For the current library, start with a restore and build from the repository
 root:
@@ -26,9 +35,56 @@ dotnet restore $library
 dotnet build $library -c Release --no-restore -p:ContinuousIntegrationBuild=true
 ```
 
-Check each exit code before continuing. Before release,
-rerun the six-target matrix and the supported x86 target, and record fresh
-package/API compatibility evidence.
+Check each exit code before continuing.
+
+### 5.0.0 validation record, 2026-11-17
+
+Checked locally on Windows 11 (`10.0.26300`) with SDK `11.0.100`, 64-bit and
+32-bit `.NET 11.0.0` and `.NET 10.0.15` runtimes, `.NET Framework 4.8.1`, and
+Visual Studio 2026 (`v18.12.0`) x86 MSVC `cl.exe`:
+
+- Solution `Release` (`ContinuousIntegrationBuild=true`) and `Debug` builds
+  passed across all five targets with zero warnings and zero errors, generating
+  `AdaskoTheBeAsT.Interop.Threading.5.0.0.nupkg` and `.snupkg` with five
+  framework asset groups (`net11.0`, `net10.0`, `net481`, `net48`, `net472`) and
+  zero added NuGet package dependencies (`net11.0` and `net10.0` have empty
+  dependency groups; `net481`, `net48`, and `net472` depend solely on
+  `System.Threading.AccessControl` `[11.0.0, 12.0.0)`).
+- `Invoke-Validation.ps1 -Mode Windows -Configuration Release` passed: 201/201
+  unit tests on `net11.0|x64` and `net10.0|x64`, and 198/198 on `net481|x64`,
+  `net48|x64`, and `net472|x64` (996 x64 test executions, 0 failures, 0 skips;
+  the 3 additional tests on `net11.0`/`net10.0` cover `#if NET8_0_OR_GREATER`
+  `ValueTask` zero-allocation and `IValueTaskSource` single-consumption
+  contracts), `StaService` and `MutexProbe` builds and runs on `net11.0-windows`,
+  and two-process mutex exclusion, timeout, cancellation, abandonment, and release.
+- `Invoke-Validation.ps1 -Mode X86 -Configuration Release` passed: 198/198 unit
+  tests on `net472|x86`, 201/201 on `net11.0|x86`, and 201/201 on `net10.0|x86`
+  (600 x86 test executions, 0 failures, 0 skips, including live
+  `kernel32!GetThreadLocale`/`SetThreadLocale` round-trips, `StaApartment.EnterScope`,
+  synchronous `SingleThreadedApartmentTask.Run` inside `MutexHelper.RunInMutex`,
+  and 8 MB `MaxStackSize` deep stack frames), plus `scripts/Test-FpuProcess.ps1`
+  compiling `test/native/fpu_poison.c` and passing fresh-process 32-bit x86
+  trap-poisoning and mode-preservation probes.
+- `Invoke-Validation.ps1 -Mode Portable -Configuration Release` passed on Windows:
+  32/32 portable tests (`TaskExtension`, `ThreadAffinity`, and portable
+  `ThreadCultureScope`) on `net11.0` and 32/32 on `net10.0`, plus clean
+  `-p:OS=Unix` non-Windows compilation (Linux container/host execution remains an
+  external CI check).
+- `benchmarks/Threading.Benchmarks` (`net10.0-windows` under SDK `11.0.100` with
+  `BenchmarkDotNet 0.15.8`) built with zero warnings/errors, executed all seven
+  `--job Dry` scenarios, and completed `--latency`.
+
+## Historical 4.0 configuration
+
+The earlier 4.0 tree targeted **six frameworks**:
+`net10.0`, `net9.0`, `net8.0`, `net481`, `net48`, and `net472`, with SDK
+**10.0.401**.
+**The historical evidence below does not validate a 5.0 release.** In particular:
+
+- The current build files do not enable the earlier SDK package/API validation
+  against 3.1.0. Do not infer API compatibility from those historical results.
+- Package lockfiles are no longer used; `dotnet restore` resolves the current
+  framework and dependency inputs directly.
 
 ### PR #4 review-fix checks, 2026-09-10
 

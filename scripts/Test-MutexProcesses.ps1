@@ -4,7 +4,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 $project = Join-Path $repo 'samples/MutexProbe/MutexProbe.csproj'
 dotnet build $project --configuration $Configuration
 if ($LASTEXITCODE -ne 0) { throw 'Mutex probe build failed.' }
-$probe = Join-Path $repo "samples/MutexProbe/bin/$Configuration/net10.0-windows/MutexProbe.exe"
+$probe = Join-Path $repo "samples/MutexProbe/bin/$Configuration/net11.0-windows/MutexProbe.exe"
 
 function Start-Probe([string] $Mode) {
     $start = [System.Diagnostics.ProcessStartInfo]::new($probe)

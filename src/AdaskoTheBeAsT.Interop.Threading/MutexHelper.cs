@@ -19,6 +19,18 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 public static class MutexHelper
 {
     /// <summary>
+    /// Runs an action while holding a named global mutex and waits indefinitely to acquire it.
+    /// </summary>
+    /// <param name="name">The mutex name, without the <c>Global\</c> prefix.</param>
+    /// <param name="action">The synchronous action to execute after the mutex is acquired.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="action"/> is <see langword="null"/>.</exception>
+    public static void RunInMutex(string name, Action action)
+    {
+        ValidateAction(action);
+        _ = RunInMutex(name, Timeout.InfiniteTimeSpan, isGlobal: true, WrapAction(action));
+    }
+
+    /// <summary>
     /// Runs a delegate while holding a named global mutex and waits indefinitely to acquire it.
     /// </summary>
     /// <typeparam name="T">The type returned by the delegate.</typeparam>
@@ -29,6 +41,20 @@ public static class MutexHelper
     public static T RunInMutex<T>(string name, Func<T> func)
     {
         return RunInMutex(name, Timeout.InfiniteTimeSpan, isGlobal: true, func);
+    }
+
+    /// <summary>
+    /// Runs an action while holding a named global mutex.
+    /// </summary>
+    /// <param name="name">The mutex name, without the <c>Global\</c> prefix.</param>
+    /// <param name="timeout">How long to wait to acquire the mutex.</param>
+    /// <param name="action">The synchronous action to execute after the mutex is acquired.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="action"/> is <see langword="null"/>.</exception>
+    /// <exception cref="TimeoutException">Thrown when the mutex cannot be acquired within <paramref name="timeout"/>.</exception>
+    public static void RunInMutex(string name, TimeSpan timeout, Action action)
+    {
+        ValidateAction(action);
+        _ = RunInMutex(name, timeout, isGlobal: true, WrapAction(action));
     }
 
     /// <summary>
@@ -44,6 +70,21 @@ public static class MutexHelper
     public static T RunInMutex<T>(string name, TimeSpan timeout, Func<T> func)
     {
         return RunInMutex(name, timeout, isGlobal: true, func);
+    }
+
+    /// <summary>
+    /// Runs an action while holding a named mutex, optionally using the machine-wide <c>Global\</c> namespace.
+    /// </summary>
+    /// <param name="name">The mutex name.</param>
+    /// <param name="timeout">How long to wait to acquire the mutex.</param>
+    /// <param name="isGlobal"><see langword="true"/> to use a machine-wide mutex name prefixed with <c>Global\</c>; otherwise use a local name.</param>
+    /// <param name="action">The synchronous action to execute after the mutex is acquired.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="action"/> is <see langword="null"/>.</exception>
+    /// <exception cref="TimeoutException">Thrown when the mutex cannot be acquired within <paramref name="timeout"/>.</exception>
+    public static void RunInMutex(string name, TimeSpan timeout, bool isGlobal, Action action)
+    {
+        ValidateAction(action);
+        _ = RunInMutex(name, timeout, isGlobal, WrapAction(action));
     }
 
     // MA0051: method length is acceptable here — the acquire/execute/release flow
@@ -113,6 +154,32 @@ public static class MutexHelper
     }
 
     /// <summary>
+    /// Executes a synchronous action with explicit creation, abandonment, and cancelable-acquisition policies.
+    /// Cancellation wins before action invocation; any acquired mutex is always released on the acquiring thread.
+    /// </summary>
+    /// <param name="name">Unqualified name. Select the namespace through options, not a prefix.</param>
+    /// <param name="options">Security and acquisition policies.</param>
+    /// <param name="action">Synchronous action, never an async void lambda.</param>
+    /// <param name="cancellationToken">Cancels acquisition, not the executing action.</param>
+    public static void RunInMutex(
+        string name,
+        MutexExecutionOptions options,
+        Action action,
+        CancellationToken cancellationToken = default)
+    {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(options);
+#else
+        if (options is null)
+        {
+            throw new ArgumentNullException(nameof(options));
+        }
+#endif
+        ValidateAction(action);
+        _ = RunInMutex(name, options, WrapAction(action), cancellationToken);
+    }
+
+    /// <summary>
     /// Executes synchronous code with explicit creation, abandonment, and cancelable-acquisition policies.
     /// Cancellation wins before delegate invocation; any acquired mutex is always released on the acquiring thread.
     /// </summary>
@@ -179,6 +246,29 @@ public static class MutexHelper
             }
         }
     }
+
+    private static void ValidateAction(Action action)
+    {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(action);
+#else
+        if (action is null)
+        {
+            throw new ArgumentNullException(nameof(action));
+        }
+#endif
+    }
+
+#pragma warning disable CC0031 // Validated by ValidateAction immediately prior to wrapping.
+    private static Func<bool> WrapAction(Action action)
+    {
+        return () =>
+        {
+            action();
+            return true;
+        };
+    }
+#pragma warning restore CC0031
 
     private static bool Acquire(Mutex mutex, TimeSpan timeout, CancellationToken token)
     {
