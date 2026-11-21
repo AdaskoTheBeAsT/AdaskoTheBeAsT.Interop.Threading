@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 #if NET8_0_OR_GREATER
 using System.Runtime.Versioning;
 #endif
@@ -316,7 +317,7 @@ public class StaThreadScopeContractTest
 
         public override PumpOutcome Pump(bool preserveQuit, int maxMessages)
         {
-            Events.Add($"pump:{preserveQuit}:{maxMessages}");
+            Events.Add($"pump:{preserveQuit}:{maxMessages.ToString(CultureInfo.InvariantCulture)}");
             return base.Pump(preserveQuit, maxMessages);
         }
 

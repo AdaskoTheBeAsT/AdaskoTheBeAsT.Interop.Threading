@@ -30,13 +30,12 @@ internal static class TaskWait
     {
         if (source.IsCompleted)
         {
-            var deadlineToken = deadline.Token;
-            var deadlineCanceled = deadline.IsCancellationRequested;
+            var deadlineState = (deadline.Token, deadline.IsCancellationRequested);
 #pragma warning disable IDISP007 // Ownership of deadline transfers here once source has settled.
             deadline.Dispose();
 #pragma warning restore IDISP007
             var syncCompletion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-            TransferCooperative(source, syncCompletion, getResult, timeout, callerToken, deadlineToken, deadlineCanceled);
+            TransferCooperative(source, syncCompletion, getResult, timeout, deadlineState, callerToken);
             return syncCompletion.Task;
         }
 
@@ -85,11 +84,10 @@ internal static class TaskWait
     public static bool TryClassifySyncCooperativeException(
         Exception exception,
         TimeSpan timeout,
-        CancellationToken callerToken,
-        CancellationToken deadlineToken,
-        bool deadlineCanceled,
+        (CancellationToken Token, bool IsCancellationRequested) deadline,
         out Exception? classifiedFailure,
-        out bool isCallerCancellation)
+        out bool isCallerCancellation,
+        CancellationToken callerToken)
     {
         classifiedFailure = null;
         isCallerCancellation = false;
@@ -99,7 +97,7 @@ internal static class TaskWait
         }
 
         if (callerToken.IsCancellationRequested
-            && (oce.CancellationToken == deadlineToken
+            && (oce.CancellationToken == deadline.Token
                 || oce.CancellationToken == callerToken
                 || !oce.CancellationToken.CanBeCanceled))
         {
@@ -107,8 +105,8 @@ internal static class TaskWait
             return true;
         }
 
-        if (deadlineCanceled
-            && (oce.CancellationToken == deadlineToken || !oce.CancellationToken.CanBeCanceled))
+        if (deadline.IsCancellationRequested
+            && (oce.CancellationToken == deadline.Token || !oce.CancellationToken.CanBeCanceled))
         {
             classifiedFailure = new TimeoutException($"The operation has timed out after {timeout}.");
             return true;
@@ -122,9 +120,8 @@ internal static class TaskWait
         TaskCompletionSource<T> target,
         Func<Task, T> getResult,
         TimeSpan timeout,
-        CancellationToken callerToken,
-        CancellationToken deadlineToken,
-        bool deadlineCanceled)
+        (CancellationToken Token, bool IsCancellationRequested) deadline,
+        CancellationToken callerToken)
     {
         if (source.Status == TaskStatus.RanToCompletion)
         {
@@ -134,7 +131,7 @@ internal static class TaskWait
             return;
         }
 
-        if (TryGetCooperativeCancellation(source, callerToken, deadlineToken, deadlineCanceled, out var isCallerCancellation))
+        if (TryGetCooperativeCancellation(source, deadline, out var isCallerCancellation, callerToken))
         {
             if (isCallerCancellation)
             {
@@ -153,48 +150,31 @@ internal static class TaskWait
 
     private static bool TryGetCooperativeCancellation(
         Task source,
-        CancellationToken callerToken,
-        CancellationToken deadlineToken,
-        bool deadlineCanceled,
-        out bool isCallerCancellation)
+        (CancellationToken Token, bool IsCancellationRequested) deadline,
+        out bool isCallerCancellation,
+        CancellationToken callerToken)
     {
-        isCallerCancellation = false;
-        if (source.IsCanceled)
+        // Tokenless cancellation is accepted for canceled tasks. Faulted tasks must carry a matching token.
+        var isCanceled = source.IsCanceled;
+        CancellationToken operationToken;
+        if (isCanceled)
         {
-            var canceledToken = ExtractCanceledToken(source);
-            if (callerToken.IsCancellationRequested
-                && (canceledToken == deadlineToken || canceledToken == callerToken || !canceledToken.CanBeCanceled))
-            {
-                isCallerCancellation = true;
-                return true;
-            }
-
-            if (deadlineCanceled && (canceledToken == deadlineToken || !canceledToken.CanBeCanceled))
-            {
-                return true;
-            }
-
+            operationToken = ExtractCanceledToken(source);
+        }
+        else if (source.Exception is { InnerExceptions.Count: 1 } aggregate
+            && aggregate.InnerExceptions[0] is OperationCanceledException faultedOce)
+        {
+            operationToken = faultedOce.CancellationToken;
+        }
+        else
+        {
+            isCallerCancellation = false;
             return false;
         }
 
-        if (source.Exception is { InnerExceptions.Count: 1 } aggregate
-            && aggregate.InnerExceptions[0] is OperationCanceledException faultedOce)
-        {
-            if (callerToken.IsCancellationRequested
-                && (faultedOce.CancellationToken == deadlineToken
-                    || (callerToken.CanBeCanceled && faultedOce.CancellationToken == callerToken)))
-            {
-                isCallerCancellation = true;
-                return true;
-            }
-
-            if (deadlineCanceled && faultedOce.CancellationToken == deadlineToken)
-            {
-                return true;
-            }
-        }
-
-        return false;
+        var matchesDeadline = operationToken == deadline.Token || (isCanceled && !operationToken.CanBeCanceled);
+        isCallerCancellation = callerToken.IsCancellationRequested && (matchesDeadline || operationToken == callerToken);
+        return isCallerCancellation || (deadline.IsCancellationRequested && matchesDeadline);
     }
 
     private static CancellationToken ExtractCanceledToken(Task source)
@@ -260,11 +240,11 @@ internal static class TaskWait
 
         if (winner == source)
         {
-            var deadlineCanceled = deadline.IsCancellationRequested;
+            var deadlineState = (deadlineToken, deadline.IsCancellationRequested);
 #pragma warning disable IDISP007 // Ownership of deadline transfers here once source settles.
             deadline.Dispose();
 #pragma warning restore IDISP007
-            TransferCooperative(source, completion, getResult, timeout, callerToken, deadlineToken, deadlineCanceled);
+            TransferCooperative(source, completion, getResult, timeout, deadlineState, callerToken);
         }
         else
         {

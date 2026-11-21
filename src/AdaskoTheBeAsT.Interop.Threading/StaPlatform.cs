@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.InteropServices;
 #if NET8_0_OR_GREATER
 using System.Runtime.Versioning;
@@ -47,7 +48,7 @@ internal class StaPlatform
             var initHr = InitializeComSta();
             if (initHr < 0)
             {
-                throw new COMException($"CoInitializeEx(COINIT_APARTMENTTHREADED) failed (HRESULT: 0x{initHr:X8}).", initHr);
+                throw new COMException($"CoInitializeEx(COINIT_APARTMENTTHREADED) failed (HRESULT: 0x{initHr.ToString("X8", CultureInfo.InvariantCulture)}).", initHr);
             }
 
             comInitialized = true;
@@ -56,13 +57,13 @@ internal class StaPlatform
 
         if (hr < 0)
         {
-            throw new COMException($"CoGetApartmentType failed (HRESULT: 0x{hr:X8}).", hr);
+            throw new COMException($"CoGetApartmentType failed (HRESULT: 0x{hr.ToString("X8", CultureInfo.InvariantCulture)}).", hr);
         }
 
         if (!IsNativeStaApartment(apartmentType, apartmentQualifier))
         {
             throw new InvalidOperationException(
-                $"Native COM STA initialization failed: worker apartment is {apartmentType} (qualifier: {apartmentQualifier}) instead of STA. " +
+                $"Native COM STA initialization failed: worker apartment is {apartmentType.ToString(CultureInfo.InvariantCulture)} (qualifier: {apartmentQualifier.ToString(CultureInfo.InvariantCulture)}) instead of STA. " +
                 "On Windows Nano Server, ensure nanoserver_sta_shim.dll is active or configure BeforeThreadStart (for example NanoServerOptions.RefreshStaState) before starting the STA thread.");
         }
     }
@@ -88,7 +89,7 @@ internal class StaPlatform
         var result = NativeMethods.OleInitialize(IntPtr.Zero);
         if (result < 0)
         {
-            throw new COMException($"OleInitialize failed (HRESULT: 0x{result:X8}).", result);
+            throw new COMException($"OleInitialize failed (HRESULT: 0x{result.ToString("X8", CultureInfo.InvariantCulture)}).", result);
         }
     }
 
@@ -163,7 +164,7 @@ internal class StaPlatform
         if (!NativeMethods.SetThreadLocale(localeId))
         {
             var error = Marshal.GetLastWin32Error();
-            throw new Win32Exception(error, $"SetThreadLocale(0x{localeId:X4}) failed.");
+            throw new Win32Exception(error, $"SetThreadLocale(0x{localeId.ToString("X4", CultureInfo.InvariantCulture)}) failed.");
         }
     }
 

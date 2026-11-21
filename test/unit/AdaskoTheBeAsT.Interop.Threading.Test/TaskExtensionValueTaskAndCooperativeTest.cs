@@ -16,12 +16,12 @@ public class TaskExtensionValueTaskAndCooperativeTest
     [Fact]
     public async Task CooperativeTask_NullOperation_ValidatedBeforeTimeoutAsync()
     {
-        Func<CancellationToken, Task> nullNonGeneric = null!;
+        const Func<CancellationToken, Task> nullNonGeneric = null!;
         var err1 = await Record.ExceptionAsync(
             async () => await TaskExtension.TimeoutAfterAsync(nullNonGeneric, TimeSpan.FromMilliseconds(-5), CancellationToken.None));
         err1.Should().BeOfType<ArgumentNullException>().Which.ParamName.Should().Be("operation");
 
-        Func<CancellationToken, Task<int>> nullGeneric = null!;
+        const Func<CancellationToken, Task<int>> nullGeneric = null!;
         var err2 = await Record.ExceptionAsync(
             async () => await TaskExtension.TimeoutAfterAsync(nullGeneric, TimeSpan.FromMilliseconds(-5), CancellationToken.None));
         err2.Should().BeOfType<ArgumentNullException>().Which.ParamName.Should().Be("operation");
@@ -430,7 +430,7 @@ public class TaskExtensionValueTaskAndCooperativeTest
             _core.Reset();
             _getResultCalls = 0;
             _consumed = false;
-            _core.SetResult(true);
+            _core.SetResult(result: true);
         }
 
         public ValueTask CreateValueTaskAsync()
@@ -440,7 +440,7 @@ public class TaskExtensionValueTaskAndCooperativeTest
 
         public void SetResult()
         {
-            _core.SetResult(true);
+            _core.SetResult(result: true);
         }
 
         public void GetResult(short token)

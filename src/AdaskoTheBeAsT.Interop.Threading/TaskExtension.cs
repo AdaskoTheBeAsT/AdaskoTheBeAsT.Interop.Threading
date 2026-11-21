@@ -9,6 +9,8 @@ namespace AdaskoTheBeAsT.Interop.Threading;
 /// </summary>
 public static class TaskExtension
 {
+    private const string NullOperationTaskMessage = "The timeout operation delegate returned a null Task.";
+
     /// <summary>
     /// Waits for a task to complete, enforcing a timeout while still honoring caller cancellation.
     /// </summary>
@@ -175,9 +177,9 @@ public static class TaskExtension
 
         if (task.IsCompletedSuccessfully)
         {
-#pragma warning disable VSTHRD002
+#pragma warning disable VSTHRD002, MA0042 // The successful ValueTask is already complete and must be consumed once.
             task.GetAwaiter().GetResult();
-#pragma warning restore VSTHRD002
+#pragma warning restore VSTHRD002, MA0042
             return ValueTask.CompletedTask;
         }
 
@@ -223,9 +225,9 @@ public static class TaskExtension
 
         if (task.IsCompletedSuccessfully)
         {
-#pragma warning disable VSTHRD002
+#pragma warning disable VSTHRD002, MA0042 // The successful ValueTask is already complete and must be consumed once.
             var result = task.GetAwaiter().GetResult();
-#pragma warning restore VSTHRD002
+#pragma warning restore VSTHRD002, MA0042
             return new ValueTask<TResult>(result);
         }
 
@@ -335,9 +337,7 @@ public static class TaskExtension
     private static void ValidateOperation(Delegate operation, TimeSpan timeout)
     {
 #if NET8_0_OR_GREATER
-#pragma warning disable S3236 // Preserve the public parameter name through this shared guard.
-        ArgumentNullException.ThrowIfNull(operation, nameof(operation));
-#pragma warning restore S3236
+        ArgumentNullException.ThrowIfNull(operation);
 #else
         if (operation is null)
         {
@@ -348,12 +348,13 @@ public static class TaskExtension
     }
 
 #pragma warning disable CC0031 // Validated by ValidateOperation before invocation.
+#pragma warning disable RCS1229 // Return the operation's task directly and handle only exceptions thrown during invocation.
     private static Task InvokeInfiniteTaskAsync(Func<CancellationToken, Task> operation, CancellationToken token)
     {
         try
         {
             var pending = operation(token);
-            return pending ?? Task.FromException(new InvalidOperationException("The timeout operation delegate returned a null Task."));
+            return pending ?? Task.FromException(new InvalidOperationException(NullOperationTaskMessage));
         }
         catch (OperationCanceledException oce) when (token.IsCancellationRequested
                                                      && (oce.CancellationToken == token || !oce.CancellationToken.CanBeCanceled))
@@ -373,7 +374,7 @@ public static class TaskExtension
         try
         {
             var pending = operation(token);
-            return pending ?? Task.FromException<TResult>(new InvalidOperationException("The timeout operation delegate returned a null Task."));
+            return pending ?? Task.FromException<TResult>(new InvalidOperationException(NullOperationTaskMessage));
         }
         catch (OperationCanceledException oce) when (token.IsCancellationRequested
                                                      && (oce.CancellationToken == token || !oce.CancellationToken.CanBeCanceled))
@@ -385,6 +386,7 @@ public static class TaskExtension
             return Task.FromException<TResult>(ex);
         }
     }
+#pragma warning restore RCS1229
 
     private static void ArmDeadline(CancellationTokenSource deadline, TimeSpan timeout)
     {
@@ -399,6 +401,7 @@ public static class TaskExtension
     }
 
 #pragma warning disable CA2000, IDISP001 // Ownership of deadline transfers to CompleteCooperativeTaskAsync / TaskWait.StartCooperativeAsync.
+#pragma warning disable RCS1229 // The completion path owns the deadline and preserves the original task status.
     private static Task ExecuteCooperativeTaskAsync(
         Func<CancellationToken, Task> operation,
         TimeSpan timeout,
@@ -409,12 +412,12 @@ public static class TaskExtension
         {
             ArmDeadline(deadline, timeout);
             var pending = operation(deadline.Token)
-                ?? throw new InvalidOperationException("The timeout operation delegate returned a null Task.");
+                ?? throw new InvalidOperationException(NullOperationTaskMessage);
             return CompleteCooperativeTaskAsync(pending, deadline, timeout, callerToken);
         }
         catch (Exception ex)
         {
-            return FailAndDisposeDeadlineAsync(ex, timeout, callerToken, deadline);
+            return FailAndDisposeDeadlineAsync(ex, timeout, deadline, callerToken);
         }
     }
 
@@ -428,15 +431,16 @@ public static class TaskExtension
         {
             ArmDeadline(deadline, timeout);
             var pending = operation(deadline.Token)
-                ?? throw new InvalidOperationException("The timeout operation delegate returned a null Task.");
+                ?? throw new InvalidOperationException(NullOperationTaskMessage);
             return CompleteCooperativeTaskAsync(pending, deadline, timeout, callerToken);
         }
         catch (Exception ex)
         {
-            return FailAndDisposeDeadlineAsync<TResult>(ex, timeout, callerToken, deadline);
+            return FailAndDisposeDeadlineAsync<TResult>(ex, timeout, deadline, callerToken);
         }
     }
 #pragma warning restore CA2000, IDISP001
+#pragma warning restore RCS1229
 
 #pragma warning disable IDISP007, VSTHRD003 // Ownership of deadline belongs to this completion path; returning completed pending task is intentional.
     private static Task CompleteCooperativeTaskAsync(
@@ -479,20 +483,18 @@ public static class TaskExtension
     private static Task FailAndDisposeDeadlineAsync(
         Exception ex,
         TimeSpan timeout,
-        CancellationToken callerToken,
-        CancellationTokenSource deadline)
+        CancellationTokenSource deadline,
+        CancellationToken callerToken)
     {
-        var deadlineToken = deadline.Token;
-        var deadlineCanceled = deadline.IsCancellationRequested;
+        var deadlineState = (deadline.Token, deadline.IsCancellationRequested);
         deadline.Dispose();
         if (TaskWait.TryClassifySyncCooperativeException(
                 ex,
                 timeout,
-                callerToken,
-                deadlineToken,
-                deadlineCanceled,
+                deadlineState,
                 out var classifiedFailure,
-                out var isCallerCancellation))
+                out var isCallerCancellation,
+                callerToken))
         {
             return isCallerCancellation
                 ? Task.FromCanceled(callerToken)
@@ -505,20 +507,18 @@ public static class TaskExtension
     private static Task<TResult> FailAndDisposeDeadlineAsync<TResult>(
         Exception ex,
         TimeSpan timeout,
-        CancellationToken callerToken,
-        CancellationTokenSource deadline)
+        CancellationTokenSource deadline,
+        CancellationToken callerToken)
     {
-        var deadlineToken = deadline.Token;
-        var deadlineCanceled = deadline.IsCancellationRequested;
+        var deadlineState = (deadline.Token, deadline.IsCancellationRequested);
         deadline.Dispose();
         if (TaskWait.TryClassifySyncCooperativeException(
                 ex,
                 timeout,
-                callerToken,
-                deadlineToken,
-                deadlineCanceled,
+                deadlineState,
                 out var classifiedFailure,
-                out var isCallerCancellation))
+                out var isCallerCancellation,
+                callerToken))
         {
             return isCallerCancellation
                 ? Task.FromCanceled<TResult>(callerToken)
@@ -558,6 +558,7 @@ public static class TaskExtension
         }
     }
 
+#pragma warning disable RCS1229 // Consume the ValueTask once and preserve the operation's original task status.
     private static ValueTask InvokeInfiniteValueTaskAsync(Func<CancellationToken, ValueTask> operation, CancellationToken token)
     {
         try
@@ -565,9 +566,9 @@ public static class TaskExtension
             var pending = operation(token);
             if (pending.IsCompletedSuccessfully)
             {
-#pragma warning disable VSTHRD002
+#pragma warning disable VSTHRD002, MA0042 // The successful ValueTask is already complete.
                 pending.GetAwaiter().GetResult();
-#pragma warning restore VSTHRD002
+#pragma warning restore VSTHRD002, MA0042
                 return ValueTask.CompletedTask;
             }
 
@@ -593,9 +594,9 @@ public static class TaskExtension
             var pending = operation(token);
             if (pending.IsCompletedSuccessfully)
             {
-#pragma warning disable VSTHRD002
+#pragma warning disable VSTHRD002, MA0042 // The successful ValueTask is already complete.
                 var result = pending.GetAwaiter().GetResult();
-#pragma warning restore VSTHRD002
+#pragma warning restore VSTHRD002, MA0042
                 return new ValueTask<TResult>(result);
             }
 
@@ -627,7 +628,7 @@ public static class TaskExtension
         }
         catch (Exception ex)
         {
-            return new ValueTask(FailAndDisposeDeadlineAsync(ex, timeout, callerToken, deadline));
+            return new ValueTask(FailAndDisposeDeadlineAsync(ex, timeout, deadline, callerToken));
         }
     }
 
@@ -645,9 +646,10 @@ public static class TaskExtension
         }
         catch (Exception ex)
         {
-            return new ValueTask<TResult>(FailAndDisposeDeadlineAsync<TResult>(ex, timeout, callerToken, deadline));
+            return new ValueTask<TResult>(FailAndDisposeDeadlineAsync<TResult>(ex, timeout, deadline, callerToken));
         }
     }
+#pragma warning restore RCS1229
 
     private static ValueTask CompleteCooperativeValueTaskAsync(
         ValueTask vt,
@@ -657,9 +659,9 @@ public static class TaskExtension
     {
         if (vt.IsCompletedSuccessfully)
         {
-#pragma warning disable VSTHRD002
+#pragma warning disable VSTHRD002, MA0042 // The successful ValueTask is already complete.
             vt.GetAwaiter().GetResult();
-#pragma warning restore VSTHRD002
+#pragma warning restore VSTHRD002, MA0042
             deadline.Dispose();
             return ValueTask.CompletedTask;
         }
@@ -675,9 +677,9 @@ public static class TaskExtension
     {
         if (vt.IsCompletedSuccessfully)
         {
-#pragma warning disable VSTHRD002
+#pragma warning disable VSTHRD002, MA0042 // The successful ValueTask is already complete.
             var result = vt.GetAwaiter().GetResult();
-#pragma warning restore VSTHRD002
+#pragma warning restore VSTHRD002, MA0042
             deadline.Dispose();
             return new ValueTask<TResult>(result);
         }

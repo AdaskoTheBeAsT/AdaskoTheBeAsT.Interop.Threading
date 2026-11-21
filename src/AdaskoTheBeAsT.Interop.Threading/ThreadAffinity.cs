@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace AdaskoTheBeAsT.Interop.Threading;
 
@@ -84,7 +85,7 @@ public readonly struct ThreadAffinity : IEquatable<ThreadAffinity>
         {
             var target = string.IsNullOrWhiteSpace(ownerName) ? "Thread-affinitized instance" : ownerName;
             throw new InvalidOperationException(
-                $"{target} is bound to managed thread {OwningThreadId}, but was accessed from managed thread {currentThreadId}.");
+                $"{target} is bound to managed thread {OwningThreadId.ToString(CultureInfo.InvariantCulture)}, but was accessed from managed thread {currentThreadId.ToString(CultureInfo.InvariantCulture)}.");
         }
     }
 
@@ -111,6 +112,6 @@ public readonly struct ThreadAffinity : IEquatable<ThreadAffinity>
     {
         return OwningThreadId == 0
             ? "ThreadAffinity(Uninitialized)"
-            : $"ThreadAffinity(ThreadId={OwningThreadId})";
+            : $"ThreadAffinity(ThreadId={OwningThreadId.ToString(CultureInfo.InvariantCulture)})";
     }
 }

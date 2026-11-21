@@ -19,6 +19,7 @@ namespace AdaskoTheBeAsT.Interop.Threading.Test;
 #endif
 public class StaSynchronousExecutionContractTest
 {
+#pragma warning disable MA0042 // Exercise the synchronous overloads from an MTA thread-pool thread.
     [Fact]
     public Task Run_FromMtaThread_ExecutesAllOverloadsOnDedicatedStaThreadAsync()
     {
@@ -76,9 +77,12 @@ public class StaSynchronousExecutionContractTest
             ct);
     }
 
+#pragma warning restore MA0042
+
     [Fact]
     public void Run_FromExistingStaThread_HonorsDedicatedVsReuseMode_AndPreservesWmQuit()
     {
+        var ct = TestContext.Current.CancellationToken;
         Exception? failure = null;
         var staThread = new Thread(VerifyExistingStaModesAndQuitPreservation) { IsBackground = true };
         staThread.SetApartmentState(ApartmentState.STA);
@@ -95,7 +99,8 @@ public class StaSynchronousExecutionContractTest
 
                 var dedicatedThreadId = SingleThreadedApartmentTask.Run(
                     static () => Environment.CurrentManagedThreadId,
-                    StaExecutionMode.DedicatedThread);
+                    StaExecutionMode.DedicatedThread,
+                    ct);
                 dedicatedThreadId.Should().NotBe(outerThreadId);
 
                 var reusedThreadId = 0;
@@ -105,7 +110,8 @@ public class StaSynchronousExecutionContractTest
                         reusedThreadId = Environment.CurrentManagedThreadId;
                         StaApartment.IsCurrentThreadSta(verifyNativeApartment: true).Should().BeTrue();
                     },
-                    StaExecutionMode.ReuseCurrentStaThread);
+                    StaExecutionMode.ReuseCurrentStaThread,
+                    ct);
                 reusedThreadId.Should().Be(outerThreadId);
 
                 // ReuseCurrentStaThread must NOT drain or consume the caller's pre-existing WM_QUIT.
@@ -123,6 +129,7 @@ public class StaSynchronousExecutionContractTest
     [Fact]
     public void Run_ReuseCurrentStaThreadWithOptions_RestoresBorrowedStaCultureAndLcid()
     {
+        var ct = TestContext.Current.CancellationToken;
         Exception? failure = null;
         var staThread = new Thread(VerifyBorrowedThreadCultureRestoration) { IsBackground = true };
         staThread.SetApartmentState(ApartmentState.STA);
@@ -147,7 +154,8 @@ public class StaSynchronousExecutionContractTest
                         ThreadCulture = CultureInfo.InvariantCulture,
                         WindowsThreadLocaleId = 0x0809,
                         ResetFloatingPointMaskBeforeExit = true,
-                    });
+                    },
+                    ct);
                 observed.Name.Should().Be(string.Empty);
                 observed.Item2.Should().Be(0x0809u);
 
@@ -392,7 +400,7 @@ public class StaSynchronousExecutionContractTest
     }
 
     [Fact]
-    public async Task SingleThreadedApartmentTask_RecoversNanoServerUninitializedCom_AndRejectsMtaOnRunAndRunAsync()
+    public void Run_RecoversNanoServerUninitializedCom_AndRejectsMta()
     {
         var syncCalls = 0;
         var syncPlatform = new RecoveryPlatform
@@ -403,16 +411,6 @@ public class StaSynchronousExecutionContractTest
         };
         SingleThreadedApartmentTask.Run(static () => 55, options: null, syncPlatform, CancellationToken.None).Should().Be(55);
         syncPlatform.Events.Should().Equal("ole-init", "get-apt", "com-init", "get-apt", "pump", "com-uninit", "ole-uninit");
-
-        var asyncCalls = 0;
-        var asyncPlatform = new RecoveryPlatform
-        {
-            ApartmentHandler = () => ++asyncCalls == 1
-                ? (NativeMethods.CO_E_NOTINITIALIZED, -1, 0)
-                : (0, NativeMethods.APTTYPE_STA, NativeMethods.APTTYPEQUALIFIER_NONE),
-        };
-        (await SingleThreadedApartmentTask.RunAsync(static () => 88, options: null, asyncPlatform, CancellationToken.None)).Should().Be(88);
-        asyncPlatform.Events.Should().Equal("ole-init", "get-apt", "com-init", "get-apt", "pump", "com-uninit", "ole-uninit");
 
         var mtaPlatform = new RecoveryPlatform
         {
@@ -432,6 +430,22 @@ public class StaSynchronousExecutionContractTest
             skipVerifyPlatform,
             CancellationToken.None).Should().Be(9);
         skipVerifyPlatform.Events.Should().NotContain("get-apt");
+    }
+
+    [Fact]
+    public async Task RunAsync_RecoversNanoServerUninitializedComAsync()
+    {
+        var calls = 0;
+        var platform = new RecoveryPlatform
+        {
+            ApartmentHandler = () => ++calls == 1
+                ? (NativeMethods.CO_E_NOTINITIALIZED, -1, 0)
+                : (0, NativeMethods.APTTYPE_STA, NativeMethods.APTTYPEQUALIFIER_NONE),
+        };
+
+        var result = await SingleThreadedApartmentTask.RunAsync(static () => 88, options: null, platform, CancellationToken.None);
+        result.Should().Be(88);
+        platform.Events.Should().Equal("ole-init", "get-apt", "com-init", "get-apt", "pump", "com-uninit", "ole-uninit");
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]

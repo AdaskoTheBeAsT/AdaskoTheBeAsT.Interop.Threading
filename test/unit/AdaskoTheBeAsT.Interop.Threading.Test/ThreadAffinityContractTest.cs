@@ -37,7 +37,7 @@ public class ThreadAffinityContractTest
         affinity.OwningThreadId.Should().Be(currentId);
         affinity.IsInitialized.Should().BeTrue();
         affinity.IsCurrentThread.Should().BeTrue();
-        affinity.ToString().Should().Be($"ThreadAffinity(ThreadId={currentId})");
+        affinity.ToString().Should().Be($"ThreadAffinity(ThreadId={currentId.ToString(CultureInfo.InvariantCulture)})");
 
         var act = () => affinity.ThrowIfWrongThread("WorkerSession");
         act.Should().NotThrow();

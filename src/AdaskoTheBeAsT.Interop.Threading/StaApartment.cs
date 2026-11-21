@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Runtime.InteropServices;
 #if NET8_0_OR_GREATER
 using System.Runtime.Versioning;
@@ -86,7 +87,7 @@ public static class StaApartment
         if (managedState != ApartmentState.STA)
         {
             throw new InvalidOperationException(
-                $"Current thread {Environment.CurrentManagedThreadId} has managed apartment state {managedState} instead of STA.");
+                $"Current thread {Environment.CurrentManagedThreadId.ToString(CultureInfo.InvariantCulture)} has managed apartment state {managedState} instead of STA.");
         }
 
         if (!verifyNativeApartment)
@@ -98,21 +99,21 @@ public static class StaApartment
         if (hr == NativeMethods.CO_E_NOTINITIALIZED)
         {
             throw new InvalidOperationException(
-                $"Native COM apartment is not initialized on managed STA thread {Environment.CurrentManagedThreadId} (CO_E_NOTINITIALIZED). Call {nameof(StaApartment)}.{nameof(EnterScope)}() first.",
+                $"Native COM apartment is not initialized on managed STA thread {Environment.CurrentManagedThreadId.ToString(CultureInfo.InvariantCulture)} (CO_E_NOTINITIALIZED). Call {nameof(StaApartment)}.{nameof(EnterScope)}() first.",
                 new COMException("COM is not initialized on the current thread.", hr));
         }
 
         if (hr < 0)
         {
             throw new InvalidOperationException(
-                $"CoGetApartmentType failed on thread {Environment.CurrentManagedThreadId} (HRESULT: 0x{hr:X8}).",
-                new COMException($"CoGetApartmentType failed (HRESULT: 0x{hr:X8}).", hr));
+                $"CoGetApartmentType failed on thread {Environment.CurrentManagedThreadId.ToString(CultureInfo.InvariantCulture)} (HRESULT: 0x{hr.ToString("X8", CultureInfo.InvariantCulture)}).",
+                new COMException($"CoGetApartmentType failed (HRESULT: 0x{hr.ToString("X8", CultureInfo.InvariantCulture)}).", hr));
         }
 
         if (!StaPlatform.IsNativeStaApartment(apartmentType, apartmentQualifier))
         {
             throw new InvalidOperationException(
-                $"Current thread {Environment.CurrentManagedThreadId} is in native COM apartment {apartmentType} (qualifier: {apartmentQualifier}) instead of STA.");
+                $"Current thread {Environment.CurrentManagedThreadId.ToString(CultureInfo.InvariantCulture)} is in native COM apartment {apartmentType.ToString(CultureInfo.InvariantCulture)} (qualifier: {apartmentQualifier.ToString(CultureInfo.InvariantCulture)}) instead of STA.");
         }
     }
 
@@ -126,17 +127,17 @@ public static class StaApartment
         if (comHr == NativeMethods.RPC_E_CHANGED_MODE)
         {
             var inner = new COMException(
-                $"CoInitializeEx(COINIT_APARTMENTTHREADED) failed (HRESULT: 0x{comHr:X8}).",
+                $"CoInitializeEx(COINIT_APARTMENTTHREADED) failed (HRESULT: 0x{comHr.ToString("X8", CultureInfo.InvariantCulture)}).",
                 comHr);
             throw new InvalidOperationException(
-                $"Cannot enter an STA apartment scope on thread {Environment.CurrentManagedThreadId} because COM is already initialized as MTA (RPC_E_CHANGED_MODE).",
+                $"Cannot enter an STA apartment scope on thread {Environment.CurrentManagedThreadId.ToString(CultureInfo.InvariantCulture)} because COM is already initialized as MTA (RPC_E_CHANGED_MODE).",
                 inner);
         }
 
         if (comHr < 0)
         {
             throw new COMException(
-                $"CoInitializeEx(COINIT_APARTMENTTHREADED) failed (HRESULT: 0x{comHr:X8}).",
+                $"CoInitializeEx(COINIT_APARTMENTTHREADED) failed (HRESULT: 0x{comHr.ToString("X8", CultureInfo.InvariantCulture)}).",
                 comHr);
         }
 
@@ -170,13 +171,13 @@ public static class StaApartment
         if (managedState == ApartmentState.MTA)
         {
             throw new InvalidOperationException(
-                $"Cannot enter an STA apartment scope on managed MTA thread {Environment.CurrentManagedThreadId}.");
+                $"Cannot enter an STA apartment scope on managed MTA thread {Environment.CurrentManagedThreadId.ToString(CultureInfo.InvariantCulture)}.");
         }
 
         if (managedState != ApartmentState.STA && !platform.TryEnsureManagedStaState())
         {
             throw new InvalidOperationException(
-                $"Cannot enter an STA apartment scope because thread {Environment.CurrentManagedThreadId} could not be configured for STA (managed state: {platform.GetManagedApartmentState()}).");
+                $"Cannot enter an STA apartment scope because thread {Environment.CurrentManagedThreadId.ToString(CultureInfo.InvariantCulture)} could not be configured for STA (managed state: {platform.GetManagedApartmentState()}).");
         }
     }
 
@@ -185,13 +186,13 @@ public static class StaApartment
         var hr = platform.GetApartmentType(out var apartmentType, out var apartmentQualifier);
         if (hr < 0)
         {
-            throw new COMException($"CoGetApartmentType failed (HRESULT: 0x{hr:X8}).", hr);
+            throw new COMException($"CoGetApartmentType failed (HRESULT: 0x{hr.ToString("X8", CultureInfo.InvariantCulture)}).", hr);
         }
 
         if (!StaPlatform.IsNativeStaApartment(apartmentType, apartmentQualifier))
         {
             throw new InvalidOperationException(
-                $"Native COM STA initialization failed on thread {Environment.CurrentManagedThreadId}: apartment is {apartmentType} (qualifier: {apartmentQualifier}) instead of STA.");
+                $"Native COM STA initialization failed on thread {Environment.CurrentManagedThreadId.ToString(CultureInfo.InvariantCulture)}: apartment is {apartmentType.ToString(CultureInfo.InvariantCulture)} (qualifier: {apartmentQualifier.ToString(CultureInfo.InvariantCulture)}) instead of STA.");
         }
     }
 

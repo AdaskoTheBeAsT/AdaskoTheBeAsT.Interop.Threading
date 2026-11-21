@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Runtime.InteropServices;
 #if NET8_0_OR_GREATER
@@ -327,7 +328,7 @@ public class StaApartmentAndStartupContractTest
 
         public override PumpOutcome Pump(bool preserveQuit, int maxMessages)
         {
-            Events.Add($"pump:{preserveQuit}:{maxMessages}");
+            Events.Add($"pump:{preserveQuit}:{maxMessages.ToString(CultureInfo.InvariantCulture)}");
             return base.Pump(preserveQuit, maxMessages);
         }
     }

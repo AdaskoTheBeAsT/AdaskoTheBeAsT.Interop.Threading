@@ -37,7 +37,8 @@ public class StaCultureAndLocaleContractTest
 
         var oneOffAct = () => SingleThreadedApartmentTask.Run(
             static () => 1,
-            new SingleThreadedApartmentTaskOptions { WindowsThreadLocaleId = invalidLcid });
+            new SingleThreadedApartmentTaskOptions { WindowsThreadLocaleId = invalidLcid },
+            TestContext.Current.CancellationToken);
         oneOffAct.Should().Throw<ArgumentOutOfRangeException>().Which.ParamName.Should().Be("options");
 
         var scopeAct = () =>
@@ -110,21 +111,21 @@ public class StaCultureAndLocaleContractTest
             scopeObserved.UiName.Should().Be("en-US");
             scopeObserved.Lcid.Should().Be((uint)EnGbLcid);
 
-            var firstObserved = await scheduler.RunAsync(CaptureAndPoisonInWorkItem, CancellationToken.None);
-            firstObserved.Formatted.Should().Be("98.75");
-            firstObserved.UiName.Should().Be("en-US");
-            firstObserved.Lcid.Should().Be((uint)EnGbLcid);
+            var (firstFormatted, firstUiName, firstLcid) = await scheduler.RunAsync(CaptureAndPoisonInWorkItem, CancellationToken.None);
+            firstFormatted.Should().Be("98.75");
+            firstUiName.Should().Be("en-US");
+            firstLcid.Should().Be((uint)EnGbLcid);
 
-            var secondObserved = await scheduler.RunAsync(
+            var (secondFormatted, secondUiName, secondLcid) = await scheduler.RunAsync(
                 static () => (
                     Formatted: 98.75d.ToString(CultureInfo.CurrentCulture),
                     UiName: CultureInfo.CurrentUICulture.Name,
                     Lcid: NativeMethods.GetThreadLocale()),
                 CancellationToken.None);
 
-            secondObserved.Formatted.Should().Be("98.75");
-            secondObserved.UiName.Should().Be("en-US");
-            secondObserved.Lcid.Should().Be((uint)EnGbLcid);
+            secondFormatted.Should().Be("98.75");
+            secondUiName.Should().Be("en-US");
+            secondLcid.Should().Be((uint)EnGbLcid);
         }
         finally
         {

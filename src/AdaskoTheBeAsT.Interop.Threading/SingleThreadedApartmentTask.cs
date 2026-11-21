@@ -336,7 +336,7 @@ public static class SingleThreadedApartmentTask
         StaPlatform platform,
         CancellationToken cancellationToken)
     {
-        var captured = CapturedTaskOptions.CaptureAndValidate(options, nameof(options));
+        var captured = new CapturedTaskOptions(options);
         cancellationToken.ThrowIfCancellationRequested();
 
         if (captured.ExecutionMode == StaExecutionMode.ReuseCurrentStaThread
@@ -359,7 +359,7 @@ public static class SingleThreadedApartmentTask
         StaPlatform platform,
         CancellationToken cancellationToken)
     {
-        var captured = CapturedTaskOptions.CaptureAndValidate(options, nameof(options));
+        var captured = new CapturedTaskOptions(options);
         if (cancellationToken.IsCancellationRequested)
         {
             return Task.FromCanceled<T>(cancellationToken);
@@ -472,20 +472,19 @@ public static class SingleThreadedApartmentTask
         CancellationToken token)
     {
         captured.BeforeThreadStart?.Invoke();
-        var result = default(T)!;
-        Exception? failure = null;
+        var outcome = default((T Result, Exception? Failure));
         var thread = CreateDedicatedThread(
-            () => (result, failure) = ExecuteOnDedicatedThread(func, captured, platform, token),
+            () => outcome = ExecuteOnDedicatedThread(func, captured, platform, token),
             captured);
         platform.Start(thread);
         thread.Join();
 
-        if (failure is not null)
+        if (outcome.Failure is { } failure)
         {
             ExceptionDispatchInfo.Capture(failure).Throw();
         }
 
-        return result;
+        return outcome.Result;
     }
 
     private static void ExecuteAsyncWorker<T>(
@@ -554,10 +553,7 @@ public static class SingleThreadedApartmentTask
                 failure = StaPlatform.InvokeCleanupStep(platform.ResetFloatingPointState, failure);
             }
 
-            if (oleInitialized || comInitialized)
-            {
-                failure = Cleanup(platform, comInitialized, oleInitialized, failure);
-            }
+            failure = Cleanup(platform, comInitialized, oleInitialized, failure);
         }
 
         return (result, failure);
@@ -607,27 +603,35 @@ public static class SingleThreadedApartmentTask
 
     private readonly struct CapturedTaskOptions
     {
-        private CapturedTaskOptions(
-            string threadName,
-            int maxStackSize,
-            StaExecutionMode executionMode,
-            Action? beforeThreadStart,
-            bool verifyNativeStaApartment,
-            CultureInfo? threadCulture,
-            CultureInfo? threadUICulture,
-            int? rawWindowsLocaleId,
-            bool resetFloatingPointMaskBeforeExit)
+        public CapturedTaskOptions(SingleThreadedApartmentTaskOptions? options)
         {
-            ThreadName = threadName;
-            MaxStackSize = maxStackSize;
-            ExecutionMode = executionMode;
-            BeforeThreadStart = beforeThreadStart;
-            VerifyNativeStaApartment = verifyNativeStaApartment;
-            ThreadCulture = threadCulture;
-            ThreadUICulture = threadUICulture;
-            RawWindowsLocaleId = rawWindowsLocaleId;
-            WindowsThreadLocaleId = rawWindowsLocaleId.HasValue ? (uint)rawWindowsLocaleId.Value : null;
-            ResetFloatingPointMaskBeforeExit = resetFloatingPointMaskBeforeExit;
+            var threadName = options?.ThreadName ?? string.Empty;
+            ThreadName = string.IsNullOrWhiteSpace(threadName)
+                ? SingleThreadedApartmentTaskOptions.DefaultThreadName
+                : threadName;
+            MaxStackSize = options?.MaxStackSize ?? 0;
+            ExecutionMode = options?.ExecutionMode ?? StaExecutionMode.DedicatedThread;
+            BeforeThreadStart = options?.BeforeThreadStart;
+            VerifyNativeStaApartment = options?.VerifyNativeStaApartment ?? true;
+            var culture = options?.ThreadCulture;
+            ThreadCulture = culture is null ? null : CultureInfo.ReadOnly(culture);
+            var uiCulture = options?.ThreadUICulture;
+            ThreadUICulture = uiCulture is null ? null : CultureInfo.ReadOnly(uiCulture);
+            RawWindowsLocaleId = options?.WindowsThreadLocaleId;
+            ResetFloatingPointMaskBeforeExit = options?.ResetFloatingPointMaskBeforeExit ?? false;
+
+            if (MaxStackSize < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(options), "MaxStackSize must be non-negative.");
+            }
+
+            ValidateExecutionMode(ExecutionMode, nameof(options));
+            if (RawWindowsLocaleId is <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(options), "WindowsThreadLocaleId must be positive or null.");
+            }
+
+            WindowsThreadLocaleId = (uint?)RawWindowsLocaleId;
         }
 
         public string ThreadName { get; }
@@ -652,60 +656,5 @@ public static class SingleThreadedApartmentTask
 
         public bool HasCultureOrLocale =>
             ThreadCulture is not null || ThreadUICulture is not null || RawWindowsLocaleId.HasValue;
-
-        public static CapturedTaskOptions CaptureAndValidate(
-            SingleThreadedApartmentTaskOptions? options,
-            string parameterName)
-        {
-            if (options is null)
-            {
-                return new CapturedTaskOptions(
-                    SingleThreadedApartmentTaskOptions.DefaultThreadName,
-                    maxStackSize: 0,
-                    StaExecutionMode.DedicatedThread,
-                    beforeThreadStart: null,
-                    verifyNativeStaApartment: true,
-                    threadCulture: null,
-                    threadUICulture: null,
-                    rawWindowsLocaleId: null,
-                    resetFloatingPointMaskBeforeExit: false);
-            }
-
-            var threadName = string.IsNullOrWhiteSpace(options.ThreadName)
-                ? SingleThreadedApartmentTaskOptions.DefaultThreadName
-                : options.ThreadName;
-            var maxStackSize = options.MaxStackSize;
-            var executionMode = options.ExecutionMode;
-            var beforeThreadStart = options.BeforeThreadStart;
-            var verifyNativeStaApartment = options.VerifyNativeStaApartment;
-            var threadCulture = options.ThreadCulture is null ? null : CultureInfo.ReadOnly(options.ThreadCulture);
-            var threadUICulture = options.ThreadUICulture is null ? null : CultureInfo.ReadOnly(options.ThreadUICulture);
-            var rawLocaleId = options.WindowsThreadLocaleId;
-            var resetFloatingPoint = options.ResetFloatingPointMaskBeforeExit;
-
-#pragma warning disable S3236 // Preserve the public options parameter name.
-            if (maxStackSize < 0)
-            {
-                throw new ArgumentOutOfRangeException(parameterName, "MaxStackSize must be non-negative.");
-            }
-
-            ValidateExecutionMode(executionMode, parameterName);
-            if (rawLocaleId is <= 0)
-            {
-                throw new ArgumentOutOfRangeException(parameterName, "WindowsThreadLocaleId must be positive or null.");
-            }
-#pragma warning restore S3236
-
-            return new CapturedTaskOptions(
-                threadName,
-                maxStackSize,
-                executionMode,
-                beforeThreadStart,
-                verifyNativeStaApartment,
-                threadCulture,
-                threadUICulture,
-                rawLocaleId,
-                resetFloatingPoint);
-        }
     }
 }
