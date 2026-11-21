@@ -24,6 +24,7 @@ public class StaDiagnosticsContractTest
         var observed = new TaskCompletionSource<(int ThreadId, int Pending, double QueueMilliseconds)>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         using var listener = new RecordingListener(
+            scheduler.SchedulerId,
             data =>
             {
                 if (data.EventId == 1 && string.Equals(data.Payload?[2] as string, "running", StringComparison.Ordinal))
@@ -48,6 +49,7 @@ public class StaDiagnosticsContractTest
             new SingleThreadedApartmentTaskSchedulerOptions { EnableDiagnostics = true });
         var observed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var listener = new RecordingListener(
+            scheduler.SchedulerId,
             data =>
             {
                 if (data.EventId == 2)
@@ -56,23 +58,35 @@ public class StaDiagnosticsContractTest
                     observed.TrySetResult(scheduler.Completion.IsCompleted);
                 }
             });
+
+        // A stop event from another scheduler can arrive while this scheduler is still running.
+        StaSchedulerEventSource.Log.WorkerStopped(scheduler.SchedulerId + 1, hresult: 0, quitCode: 0);
+        observed.Task.IsCompleted.Should().BeFalse();
+
         await scheduler.ShutdownAsync(TimeSpan.FromSeconds(5), CancellationToken.None);
         (await observed.Task.TimeoutAfterAsync(TimeSpan.FromSeconds(5), CancellationToken.None)).Should().BeTrue();
     }
 
     private sealed class RecordingListener : EventListener
     {
+        private readonly int _schedulerId;
         private readonly Action<EventWrittenEventArgs> _record;
 
-        public RecordingListener(Action<EventWrittenEventArgs> record)
+        public RecordingListener(int schedulerId, Action<EventWrittenEventArgs> record)
         {
+            _schedulerId = schedulerId;
             _record = record;
             EnableEvents(StaSchedulerEventSource.Log, EventLevel.Informational);
         }
 
         protected override void OnEventWritten(EventWrittenEventArgs eventData)
         {
-            _record(eventData);
+            if (eventData.Payload is { Count: > 0 } payload
+                && payload[0] is int schedulerId
+                && schedulerId == _schedulerId)
+            {
+                _record(eventData);
+            }
         }
     }
 }

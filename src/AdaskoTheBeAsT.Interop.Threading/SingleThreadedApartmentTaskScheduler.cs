@@ -50,7 +50,6 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
     private readonly CultureInfo? _threadUICulture;
     private readonly uint? _windowsThreadLocaleId;
     private readonly bool _resetThreadCultureAndLocaleAfterWorkItem;
-    private readonly int _schedulerId = Interlocked.Increment(ref _nextSchedulerId);
     private readonly TaskCompletionSource<bool> _threadReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource<bool> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private CultureInfo? _baselineCulture;
@@ -132,6 +131,8 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
 
     /// <summary>Gets the exit code if the worker consumed WM_QUIT; otherwise null.</summary>
     public int? QuitExitCode { get; private set; }
+
+    internal int SchedulerId { get; } = Interlocked.Increment(ref _nextSchedulerId);
 
     // Delegates are validated by ValidateWork before wrapping them.
 #pragma warning disable CC0031
@@ -775,7 +776,7 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
                 // Listener callbacks may wait for Completion, so publish it first.
                 if (_diagnostics)
                 {
-                    StaSchedulerEventSource.Log.WorkerStopped(_schedulerId, failure?.HResult ?? 0, QuitExitCode ?? 0);
+                    StaSchedulerEventSource.Log.WorkerStopped(SchedulerId, failure?.HResult ?? 0, QuitExitCode ?? 0);
                 }
             },
             CancellationToken.None);
@@ -868,7 +869,7 @@ public sealed class SingleThreadedApartmentTaskScheduler : ICooperativeStaTaskSc
     {
         if (_diagnostics)
         {
-            var schedulerId = _schedulerId;
+            var schedulerId = SchedulerId;
             var pending = PendingWorkItemCount;
 
             // EventListener callbacks are caller code too. Deliver snapshots off the gate/STA.
