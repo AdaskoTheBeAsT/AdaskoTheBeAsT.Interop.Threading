@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net10.0;net9.0;net8.0;net481;net48;net472</TargetFrameworks>
+    <TargetFrameworks>net11.0;net10.0;net481;net48;net472</TargetFrameworks>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
@@ -11,10 +11,12 @@
   </ItemGroup>
 
   <!-- Native tests are a separate host-selected suite, not failed "skip" helpers.
-       Linux runs only portable timeout contracts, without touching Win32. -->
+       Linux runs only portable timeout and thread-affinity contracts, without touching Win32. -->
   <ItemGroup Condition="'$(OS)' != 'Windows_NT'">
     <Compile Remove="**/*.cs" />
     <Compile Include="TaskExtension*.cs" />
+    <Compile Include="ThreadAffinity*.cs" />
+    <Compile Include="ThreadCultureScopePortable*.cs" />
   </ItemGroup>
 
 </Project>

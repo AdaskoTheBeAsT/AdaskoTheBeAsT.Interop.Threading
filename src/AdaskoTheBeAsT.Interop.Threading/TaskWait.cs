@@ -9,10 +9,38 @@ internal static class TaskWait
     // The monitor never awaits the source outcome: an OCE in a faulted source
     // must stay faulted instead of being reclassified by an async method builder.
     public static Task<T> StartAsync<T>(
-        Task source, TimeSpan timeout, Func<Task, T> getResult, Action? onWaitAbandoned, CancellationToken token)
+        Task source,
+        TimeSpan timeout,
+        Func<Task, T> getResult,
+        Action? onWaitAbandoned,
+        CancellationToken token,
+        bool observeFaultOnAbandonment = false)
     {
         var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _ = MonitorAsync(source, timeout, getResult, completion, onWaitAbandoned, token);
+        _ = MonitorAsync(source, timeout, getResult, completion, onWaitAbandoned, observeFaultOnAbandonment, token);
+        return completion.Task;
+    }
+
+    public static Task<T> StartCooperativeAsync<T>(
+        Task source,
+        CancellationTokenSource deadline,
+        TimeSpan timeout,
+        Func<Task, T> getResult,
+        CancellationToken callerToken)
+    {
+        if (source.IsCompleted)
+        {
+            var deadlineState = (deadline.Token, deadline.IsCancellationRequested);
+#pragma warning disable IDISP007 // Ownership of deadline transfers here once source has settled.
+            deadline.Dispose();
+#pragma warning restore IDISP007
+            var syncCompletion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+            TransferCooperative(source, syncCompletion, getResult, timeout, deadlineState, callerToken);
+            return syncCompletion.Task;
+        }
+
+        var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ = MonitorCooperativeAsync(source, deadline, timeout, getResult, completion, callerToken);
         return completion.Task;
     }
 
@@ -53,12 +81,193 @@ internal static class TaskWait
         }
     }
 
+    public static bool TryClassifySyncCooperativeException(
+        Exception exception,
+        TimeSpan timeout,
+        (CancellationToken Token, bool IsCancellationRequested) deadline,
+        out Exception? classifiedFailure,
+        out bool isCallerCancellation,
+        CancellationToken callerToken)
+    {
+        classifiedFailure = null;
+        isCallerCancellation = false;
+        if (exception is not OperationCanceledException oce)
+        {
+            return false;
+        }
+
+        if (callerToken.IsCancellationRequested
+            && (oce.CancellationToken == deadline.Token
+                || oce.CancellationToken == callerToken
+                || !oce.CancellationToken.CanBeCanceled))
+        {
+            isCallerCancellation = true;
+            return true;
+        }
+
+        if (deadline.IsCancellationRequested
+            && (oce.CancellationToken == deadline.Token || !oce.CancellationToken.CanBeCanceled))
+        {
+            classifiedFailure = new TimeoutException($"The operation has timed out after {timeout}.");
+            return true;
+        }
+
+        return false;
+    }
+
+    private static void TransferCooperative<T>(
+        Task source,
+        TaskCompletionSource<T> target,
+        Func<Task, T> getResult,
+        TimeSpan timeout,
+        (CancellationToken Token, bool IsCancellationRequested) deadline,
+        CancellationToken callerToken)
+    {
+        if (source.Status == TaskStatus.RanToCompletion)
+        {
+#pragma warning disable CC0031
+            target.TrySetResult(getResult(source));
+#pragma warning restore CC0031
+            return;
+        }
+
+        if (TryGetCooperativeCancellation(source, deadline, out var isCallerCancellation, callerToken))
+        {
+            if (isCallerCancellation)
+            {
+                target.TrySetCanceled(callerToken);
+            }
+            else
+            {
+                target.TrySetException(new TimeoutException($"The operation has timed out after {timeout}."));
+            }
+
+            return;
+        }
+
+        Transfer(source, target, getResult);
+    }
+
+    private static bool TryGetCooperativeCancellation(
+        Task source,
+        (CancellationToken Token, bool IsCancellationRequested) deadline,
+        out bool isCallerCancellation,
+        CancellationToken callerToken)
+    {
+        // Tokenless cancellation is accepted for canceled tasks. Faulted tasks must carry a matching token.
+        var isCanceled = source.IsCanceled;
+        CancellationToken operationToken;
+        if (isCanceled)
+        {
+            operationToken = ExtractCanceledToken(source);
+        }
+        else if (source.Exception is { InnerExceptions.Count: 1 } aggregate
+            && aggregate.InnerExceptions[0] is OperationCanceledException faultedOce)
+        {
+            operationToken = faultedOce.CancellationToken;
+        }
+        else
+        {
+            isCallerCancellation = false;
+            return false;
+        }
+
+        var matchesDeadline = operationToken == deadline.Token || (isCanceled && !operationToken.CanBeCanceled);
+        isCallerCancellation = callerToken.IsCancellationRequested && (matchesDeadline || operationToken == callerToken);
+        return isCallerCancellation || (deadline.IsCancellationRequested && matchesDeadline);
+    }
+
+    private static CancellationToken ExtractCanceledToken(Task source)
+    {
+        try
+        {
+#pragma warning disable VSTHRD002
+            source.GetAwaiter().GetResult();
+#pragma warning restore VSTHRD002
+        }
+        catch (OperationCanceledException ex)
+        {
+            return ex.CancellationToken;
+        }
+
+        return CancellationToken.None;
+    }
+
+    private static void DisposeWhenSettled(Task source, CancellationTokenSource deadline)
+    {
+        _ = source.ContinueWith(
+            static (_, state) =>
+            {
+                if (state is CancellationTokenSource cts)
+                {
+                    cts.Dispose();
+                }
+            },
+            deadline,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private static async Task MonitorCooperativeAsync<T>(
+        Task source,
+        CancellationTokenSource deadline,
+        TimeSpan timeout,
+        Func<Task, T> getResult,
+        TaskCompletionSource<T> completion,
+        CancellationToken callerToken)
+    {
+        var deadlineToken = deadline.Token;
+        Task winner;
+        using (var waitCts = CancellationTokenSource.CreateLinkedTokenSource(deadlineToken))
+        {
+            try
+            {
+                var delay = Task.Delay(Timeout.InfiniteTimeSpan, waitCts.Token);
+#pragma warning disable VSTHRD003
+                winner = await Task.WhenAny(source, delay).ConfigureAwait(false);
+#pragma warning restore VSTHRD003
+            }
+            finally
+            {
+#if NET8_0_OR_GREATER
+                await waitCts.CancelAsync().ConfigureAwait(false);
+#else
+                waitCts.Cancel();
+#endif
+            }
+        }
+
+        if (winner == source)
+        {
+            var deadlineState = (deadlineToken, deadline.IsCancellationRequested);
+#pragma warning disable IDISP007 // Ownership of deadline transfers here once source settles.
+            deadline.Dispose();
+#pragma warning restore IDISP007
+            TransferCooperative(source, completion, getResult, timeout, deadlineState, callerToken);
+        }
+        else
+        {
+            ObserveFault(source);
+            DisposeWhenSettled(source, deadline);
+            if (callerToken.IsCancellationRequested)
+            {
+                completion.TrySetCanceled(callerToken);
+            }
+            else
+            {
+                completion.TrySetException(new TimeoutException($"The operation has timed out after {timeout}."));
+            }
+        }
+    }
+
     private static async Task MonitorAsync<T>(
         Task source,
         TimeSpan timeout,
         Func<Task, T> getResult,
         TaskCompletionSource<T> completion,
         Action? onWaitAbandoned,
+        bool observeFaultOnAbandonment,
         CancellationToken token)
     {
         Task winner;
@@ -88,6 +297,11 @@ internal static class TaskWait
         }
         else
         {
+            if (observeFaultOnAbandonment)
+            {
+                ObserveFault(source);
+            }
+
             onWaitAbandoned?.Invoke();
             if (token.IsCancellationRequested)
             {

@@ -1,4 +1,7 @@
 using System;
+#if NET8_0_OR_GREATER
+using System.Runtime.CompilerServices;
+#endif
 using System.Runtime.InteropServices;
 #if NET8_0_OR_GREATER
 using System.Runtime.Versioning;
@@ -18,14 +21,31 @@ internal static class NativeMethods
     public const uint QS_ALLINPUT = 0x04FF;
     public const uint WAIT_OBJECT_0 = 0;
     public const uint WAIT_FAILED = uint.MaxValue;
+    public const uint COINIT_APARTMENTTHREADED = 0x2;
+    public const int CO_E_NOTINITIALIZED = unchecked((int)0x800401F0);
+    public const int RPC_E_CHANGED_MODE = unchecked((int)0x80010106);
+    public const int APTTYPE_STA = 0;
+    public const int APTTYPE_MTA = 1;
+    public const int APTTYPE_NA = 2;
+    public const int APTTYPE_MAINSTA = 3;
+    public const int APTTYPEQUALIFIER_NONE = 0;
+    public const int APTTYPEQUALIFIER_IMPLICIT_MTA = 1;
+    public const int APTTYPEQUALIFIER_NA_ON_STA = 3;
+    public const int APTTYPEQUALIFIER_NA_ON_MAINSTA = 5;
+    public const int DefaultMessageBatchSize = 64;
     private const uint PM_REMOVE = 1;
     private const uint WM_QUIT = 0x0012;
     private const uint MWMO_INPUTAVAILABLE = 0x0004;
-    private const int MessageBatchSize = 64;
+    private const uint McwEm = 0x0008001F;
 
-    public static PumpOutcome PumpPendingMessages(bool preserveQuit = true)
+    public static PumpOutcome PumpPendingMessages(bool preserveQuit = true, int maxMessages = DefaultMessageBatchSize)
     {
-        for (var count = 0; count < MessageBatchSize; count++)
+        if (maxMessages <= 0)
+        {
+            return default;
+        }
+
+        for (var count = 0; count < maxMessages; count++)
         {
             if (!PeekMessage(out var msg, IntPtr.Zero, 0, 0, PM_REMOVE))
             {
@@ -55,12 +75,52 @@ internal static class NativeMethods
         return MsgWaitForMultipleObjectsEx((uint)handles.Length, handles, INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
     }
 
+    public static void ResetFloatingPointExceptionMask()
+    {
+        if (RuntimeInformation.ProcessArchitecture != Architecture.X86)
+        {
+            return;
+        }
+
+        // Clear sticky x87/SSE status flags first (non-waiting fnclex + MXCSR status clear)
+        // before restoring all 6 exception masks (_MCW_EM), leaving rounding and precision untouched.
+        _ = ClearFloatingPointStatus();
+        _ = Control87Sse2(McwEm, McwEm, out _, out _);
+    }
+
 #if NET8_0_OR_GREATER
     [LibraryImport("ole32.dll")]
     public static partial int OleInitialize(IntPtr pvReserved);
 
     [LibraryImport("ole32.dll")]
     public static partial void OleUninitialize();
+
+    [LibraryImport("combase.dll")]
+    public static partial int CoGetApartmentType(out int pAptType, out int pAptQualifier);
+
+    [LibraryImport("combase.dll")]
+    public static partial int CoInitializeEx(IntPtr pvReserved, uint dwCoInit);
+
+    [LibraryImport("combase.dll")]
+    public static partial void CoUninitialize();
+
+    [LibraryImport("combase.dll")]
+    public static partial void CoFreeUnusedLibrariesEx(uint dwUnloadDelay, uint dwReserved);
+
+    [LibraryImport("kernel32.dll")]
+    public static partial uint GetThreadLocale();
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool SetThreadLocale(uint locale);
+
+    [LibraryImport("ucrtbase.dll", EntryPoint = "_clearfp")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    private static partial uint ClearFloatingPointStatus();
+
+    [LibraryImport("ucrtbase.dll", EntryPoint = "__control87_2")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    private static partial int Control87Sse2(uint newValue, uint mask, out uint x86ControlWord, out uint sse2ControlWord);
 
     [LibraryImport("user32.dll", SetLastError = true)]
     private static partial uint MsgWaitForMultipleObjectsEx(
@@ -85,6 +145,31 @@ internal static class NativeMethods
 
     [DllImport("ole32.dll")]
     public static extern void OleUninitialize();
+
+    [DllImport("combase.dll", ExactSpelling = true)]
+    public static extern int CoGetApartmentType(out int pAptType, out int pAptQualifier);
+
+    [DllImport("combase.dll", ExactSpelling = true)]
+    public static extern int CoInitializeEx(IntPtr pvReserved, uint dwCoInit);
+
+    [DllImport("combase.dll", ExactSpelling = true)]
+    public static extern void CoUninitialize();
+
+    [DllImport("combase.dll", ExactSpelling = true)]
+    public static extern void CoFreeUnusedLibrariesEx(uint dwUnloadDelay, uint dwReserved);
+
+    [DllImport("kernel32.dll", ExactSpelling = true)]
+    public static extern uint GetThreadLocale();
+
+    [DllImport("kernel32.dll", ExactSpelling = true, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetThreadLocale(uint locale);
+
+    [DllImport("ucrtbase.dll", EntryPoint = "_clearfp", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern uint ClearFloatingPointStatus();
+
+    [DllImport("ucrtbase.dll", EntryPoint = "__control87_2", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int Control87Sse2(uint newValue, uint mask, out uint x86ControlWord, out uint sse2ControlWord);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint MsgWaitForMultipleObjectsEx(

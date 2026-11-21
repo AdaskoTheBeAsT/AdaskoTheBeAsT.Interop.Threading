@@ -176,20 +176,23 @@ public class SingleThreadedApartmentTaskSchedulerTest
     [Fact]
     public async Task RunAsync_WithTimeout_ThrowsTimeoutExceptionWhenWorkTakesTooLongAsync()
     {
+        using var release = new ManualResetEventSlim(initialState: false);
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
+        var testToken = TestContext.Current.CancellationToken;
 
-        var act = async () => await scheduler.RunAsync<int>(
-            () =>
-            {
-#pragma warning disable S2925
-                Thread.Sleep(1000);
-#pragma warning restore S2925
-                return 42;
-            },
+        var act = async () => await scheduler.RunAsync(
+            () => release.Wait(TimeSpan.FromSeconds(30), testToken),
             TimeSpan.FromMilliseconds(50),
             CancellationToken.None);
 
-        await act.Should().ThrowAsync<TimeoutException>();
+        try
+        {
+            await act.Should().ThrowAsync<TimeoutException>();
+        }
+        finally
+        {
+            release.Set();
+        }
     }
 
     [Fact]
@@ -208,23 +211,26 @@ public class SingleThreadedApartmentTaskSchedulerTest
     [Fact]
     public async Task RunAsync_DefaultTimeoutFromOptions_IsAppliedAsync()
     {
+        using var release = new ManualResetEventSlim(initialState: false);
         using var scheduler = new SingleThreadedApartmentTaskScheduler(
             new SingleThreadedApartmentTaskSchedulerOptions
             {
                 DefaultWorkItemTimeout = TimeSpan.FromMilliseconds(50),
             });
+        var testToken = TestContext.Current.CancellationToken;
 
-        var act = async () => await scheduler.RunAsync<int>(
-            () =>
-            {
-#pragma warning disable S2925
-                Thread.Sleep(1000);
-#pragma warning restore S2925
-                return 42;
-            },
+        var act = async () => await scheduler.RunAsync(
+            () => release.Wait(TimeSpan.FromSeconds(30), testToken),
             CancellationToken.None);
 
-        await act.Should().ThrowAsync<TimeoutException>();
+        try
+        {
+            await act.Should().ThrowAsync<TimeoutException>();
+        }
+        finally
+        {
+            release.Set();
+        }
     }
 
     [Fact]

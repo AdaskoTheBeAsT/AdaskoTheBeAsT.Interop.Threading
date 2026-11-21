@@ -1,7 +1,10 @@
 # Threading measurements
 
-Windows, .NET 10, BenchmarkDotNet 0.15.8. The benchmark project stays outside the
-shipping solution/package. Build it with the same analyzer policy as the library:
+Windows, SDK 11.0.100 (`net10.0-windows` target), BenchmarkDotNet 0.15.8.
+`BenchmarkDotNet 0.15.8` predates `RuntimeMoniker.Net11_0`, so the standalone
+benchmark project targets supported `net10.0-windows` while building under the
+repository's `.NET 11` SDK and analyzer policy. It stays outside the shipping
+solution/package:
 
 ```powershell
 $project = 'benchmarks/Threading.Benchmarks/Threading.Benchmarks.csproj'
@@ -40,7 +43,15 @@ claim follows from the presence of these benchmarks.
 BenchmarkDotNet and its generated harness. The shipping library still excludes
 these analyzer runtime assets.
 
-## Smoke-run record, 2026-09-09
+## Smoke-run record, 2026-11-16
+
+All seven Dry scenarios and the `--latency` probe executed with zero build
+warnings or errors on the `5.0.0` working tree: Windows 11 `10.0.26300.9974`,
+Intel Core i9-13980HX (24 physical/32 logical cores), SDK `11.0.100`,
+`.NET 10.0.15` x64, BenchmarkDotNet `0.15.8`. Dry jobs validate scenario
+execution only and do not establish a performance baseline.
+
+## Historical smoke-run record, 2026-09-09
 
 All seven Dry scenarios executed successfully on the working tree based on
 `601cf20`: Windows 11 10.0.26200.9445, Intel Core i9-13980HX (24 physical/32 logical

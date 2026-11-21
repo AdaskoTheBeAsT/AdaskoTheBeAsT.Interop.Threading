@@ -76,27 +76,25 @@ public class SingleThreadedApartmentTaskSchedulerCoverageTest
     [Fact]
     public async Task RunAsync_WithFiniteTimeout_TimesOut_ThrowsTimeoutExceptionAsync()
     {
+        using var release = new ManualResetEventSlim(initialState: false);
         using var scheduler = new SingleThreadedApartmentTaskScheduler();
+        var testToken = TestContext.Current.CancellationToken;
 
-        // Exercises the cooperative timeout path: the delegate ignores its
-        // cancellation token and never finishes within the budget, so the
-        // Task.Delay wins the WhenAny race and ObserveTimeoutOutcomeAsync
-        // throws TimeoutException at the caller's await.
-        var act = async () => await scheduler.RunAsync<int>(
-            () =>
-            {
-                // S2925: Thread.Sleep is intentional here - the whole point of
-                // this test is a delegate that blocks the STA thread past the
-                // timeout budget to force the Task.Delay to win WhenAny.
-#pragma warning disable S2925
-                Thread.Sleep(500);
-#pragma warning restore S2925
-                return 1;
-            },
+        // Keep the delegate blocked while the caller observes the timeout.
+        // The longer wait bounds the test if the scheduler fails to time out.
+        var act = async () => await scheduler.RunAsync(
+            () => release.Wait(TimeSpan.FromSeconds(30), testToken),
             TimeSpan.FromMilliseconds(50),
             CancellationToken.None);
 
-        await act.Should().ThrowAsync<TimeoutException>();
+        try
+        {
+            await act.Should().ThrowAsync<TimeoutException>();
+        }
+        finally
+        {
+            release.Set();
+        }
     }
 
     // Split out to keep each method under MA0051's 60-line ceiling.

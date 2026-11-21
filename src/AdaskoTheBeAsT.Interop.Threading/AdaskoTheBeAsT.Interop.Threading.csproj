@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net10.0;net9.0;net8.0;net481;net48;net472</TargetFrameworks>
+    <TargetFrameworks>net11.0;net10.0;net481;net48;net472</TargetFrameworks>
     <ImplicitUsings>disable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
@@ -19,29 +19,25 @@
     <PackageProjectUrl>https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop.Threading</PackageProjectUrl>
     <Copyright>Adam "AdaskoTheBeAsT" Pluciński</Copyright>
     <PackageTags>Interop;Threading</PackageTags>
-    <PackageReleaseNotes>Enhanced STA task execution and COM interop support.</PackageReleaseNotes>
+    <PackageReleaseNotes>v5.0.0: Target .NET 11 and .NET 10 alongside .NET Framework 4.7.2-4.8.1; add synchronous SingleThreadedApartmentTask.Run, StaApartmentScope, ThreadAffinity, ThreadCultureScope and SetThreadLocale hygiene, ValueTask and cooperative TimeoutAfterAsync, MaxStackSize, Action overloads, native STA verification, CreateThreadScope, post-item message draining, and win-x86 floating-point mask hygiene.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(TF_BUILD)' == 'true'">
+  <PropertyGroup Condition="'$(TF_BUILD)' == 'true' OR '$(GITHUB_ACTIONS)' == 'true'">
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
 
+  <ItemGroup Condition="'$(TargetFramework)' == 'net11.0'">
+    <PackageReference Include="System.Threading.AccessControl" Version="[11.0.0,12.0.0)" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
-    <PackageReference Include="System.Threading.AccessControl" Version="[10.0.13,11.0.0)" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
-    <PackageReference Include="System.Threading.AccessControl" Version="[9.0.21,10.0.0)" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
-    <PackageReference Include="System.Threading.AccessControl" Version="[8.0.0,9.0.0)" />
+    <PackageReference Include="System.Threading.AccessControl" Version="[10.0.15,11.0.0)" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net481' OR '$(TargetFramework)' == 'net48' OR '$(TargetFramework)' == 'net472'">
-    <PackageReference Include="System.Threading.AccessControl" Version="[10.0.13,11.0.0)" />
+    <PackageReference Include="System.Threading.AccessControl" Version="[11.0.0,12.0.0)" />
   </ItemGroup>
 
   <ItemGroup>
